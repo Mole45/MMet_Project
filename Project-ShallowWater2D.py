@@ -3,6 +3,8 @@
 
 # # Two-dimensional shallow water equations
 # ### v1.42, 3 March 2016, by Brian Fiedler
+# ### Modifications by Joseph France
+# 
 # 
 # **This should be the final version, for tasks due on Friday March 11, 2016**
 # 
@@ -40,7 +42,7 @@
 # 
 # 
 
-# In[24]:
+# In[77]:
 
 import matplotlib.pyplot as plt
 get_ipython().magic('matplotlib inline')
@@ -54,7 +56,7 @@ from IPython.core.display import HTML
 HTML( open('my_css.css').read() )
 
 
-# In[25]:
+# In[78]:
 
 # Expands the margins of a matplotlib axis, 
 # and so prevents arrows on boundaries from being clipped. 
@@ -64,7 +66,7 @@ def stop_clipping(ax,marg=.02): # default is 2% increase
     ax.axis([l-marg*dx, r+marg*dx, b-marg*dy, t+marg*dy])
 
 
-# In[26]:
+# In[79]:
 
 # dqdt requires a list of the time derivatives for q, stored 
 # in order from present to the past
@@ -85,50 +87,48 @@ def forback(q,dt,dqdt,dx,dy,focoriolis): #q = [u,v,h], dqdt = [dudta[0],dvdta[0]
     hun = p2u(hn) # calculate h on the u grid
     dhndt = -divergence(un*hun,vn*hun,dx,dy)
     dundt,dvndt = pgf(hn,dx,dy)      #PGF
-    dundt += advect3(un,un,vn,dx,dy) #ADVECTION
-    dvndt += advect3(vn,un,vn,dx,dy)
+    dundt += advect3(un,un,vn,dx,dy,'u') #ADVECTION
+    dvndt += advect3(vn,un,vn,dx,dy,'v')
     dundt += fcoriolis*vn            #CORIOLIS
     dvndt += -fcoriolis*un
-    dundt[:,0]=dundt[:,-1]                    #BOUNDARY CONDITIONS (Fixed Boundary - Will need changing for periodic)
-    dvndt[0,:]=dvndt[-1,:]
     h = q[2] + dt*dhndt
     u = q[0] + dt*dundt
     v = q[1] + dt*dvndt
     return [u,v,h]
 
 
-# In[60]:
+# In[131]:
 
-##############################################    
+##############################################90% SURE THIS IS CORRECT
 def p2u(p):
 # interpolates and extrapolates from the p-grid to the u-grid
     u=np.zeros((p.shape[0]+1,p.shape[1]+1))
     u[1:-1,1:-1] = .25*( p[:-1,:-1]+p[1:,:-1]+p[1:,1:]+p[:-1:,1:] )
-    u[1:-1,0] = .5* (p[:-1,0] + p[1:,0] + p[:-1,-1] + p[1:,-1]) #Periodic?
-    u[1:-1,-1] = u[1:-1,0] #I hope so
+    u[1:-1,-1] = .25* (p[:-1,0] + p[1:,0] + p[:-1,-1] + p[1:,-1]) #Periodic?
+    u[1:-1,0] = u[1:-1,-1]
     u[0,1:-1] = .5* (p[0,:-1] + p[0,1:]) #Fixed
     u[-1,1:-1] = .5* (p[-1,:-1] + p[-1,1:]) #Fixed
     u[0,0]= .5* (p[0,-1] + p[0,0]) #Fixed in vert, periodic in horiz
-    u[0,-1]= u[0,0]
-    u[-1,0]= .5* (p[-1,-1] + p[-1,0])
-    u[-1,-1]=p[-1,0]
+    u[-1,0]= .5* (p[0,-1] + p[0,0])
+    u[0,-4]= .5* (p[-1,-1] + p[-1,0])
+    u[-1,-1]= .5* (p[-1,-1] + p[-1,0])
     return u
-#############################################################
+############################################################# CORRECT
 def u2p(u):
 # interpolates u-grid to the p-grid
     return .25*( u[:-1,1:] + u[1:,1:] + u[:-1,:-1] + u[1:,:-1])
-#############################################################
+############################################################# CORRECT
 def divergence(u,v,dx,dy):
     div = .5*( u[:-1,1:] + u[1:,1:] - u[:-1,:-1] - u[1:,:-1])/dx +           .5*( v[1:,:-1] + v[1:,1:] - v[:-1,:-1] - v[:-1,1:])/dy
     return div
-#############################################################
+############################################################# CORRECT
 #STUDENTS: complete the vorticity function, which is very similar to divergence
 def vorticity(u,v,dx,dy):
     vor = .5*( v[:-1,1:] + v[1:,1:] - v[:-1,:-1] - v[1:,:-1])/dx -           .5*( u[1:,:-1] + u[1:,1:] - u[:-1,:-1] - u[:-1,1:])/dy
     return vor
-######################################################################### 
+#########################################################################NEW VERSION SHOULD BE CORRECT
 # third-order upwind advection
-def advect3(q,u,v,dx,dy): 
+def advect3Old(q,u,v,dx,dy): 
     
     dqdt=np.zeros(q.shape)
     
@@ -137,12 +137,21 @@ def advect3(q,u,v,dx,dy):
     dqmy=np.zeros(q.shape)
     dqpy=np.zeros(q.shape)
     
+    #Upwind
     #dqmx[:,1] = -q[:,0] + q[:,1]
-    dqmx[:,1] = (q[:,-1] - 6*q[:,0] + 3*q[:,1] + 2*q[:,2])/6. # 3rd order, (upwind side at left wall)
-    dqmx[:,2:-1] = (q[:,:-3] - 6*q[:,1:-2] + 3*q[:,2:-1] + 2*q[:,3:])/6. # 3rd order, minus side
+    dqmx[:,-1] = (q[:,-3] - 6*q[:,-2] + 3*q[:,-1] + 2*q[:,1])/6. 
+    dqmx[:,0] = dqmx[:,-1]
+    dqmx[:,1] = (q[:,-2] - 6*q[:,-1] + 3*q[:,1] + 2*q[:,2])/6. 
+    dqmx[:,2] = (q[:,-1] - 6*q[:,1] + 3*q[:,2] + 2*q[:,3])/6. 
+    dqmx[:,3:-1] = (q[:,1:-3] - 6*q[:,2:-2] + 3*q[:,3:-1] + 2*q[:,4:])/6. 
+    
+    #Downwind
     #dqpx[:,-2] = -q[:,-2] + q[:,-1] # 1st order (upwind side at right wall)
-    dqpx[:,-2] = (-2*q[:,-3] - 3*q[:,-2] + 6*q[:,-1] -1*q[:,0])/6. #3rd order (upwind side at right wall)
-    dqpx[:,1:-2] = (-2*q[:,0:-3] - 3*q[:,1:-2] + 6*q[:,2:-1] -1*q[:,3:])/6. #3rd order, plus side
+    dqpx[:,-2] = (-2*q[:,-3] - 3*q[:,-2] + 6*q[:,-1] -1*q[:,1])/6. 
+    dqpx[:,-1] = (-2*q[:,-2] - 3*q[:,-1] + 6*q[:,1] -1*q[:,2])/6.
+    dqpx[:,0] = dqpx[:,-1]
+    dqpx[:,1] = (-2*q[:,-1] - 3*q[:,1] + 6*q[:,2] -1*q[:,3])/6. 
+    dqpx[:,2:-2] = (-2*q[:,1:-3] - 3*q[:,2:-2] + 6*q[:,3:-1] -1*q[:,4:])/6. 
 
     dqmy[1,:]  = -q[0,:] + q[1,:] # 1st order (upwind side at bottom wall)
     dqmy[2:-1,:] =  (q[:-3,:] - 6*q[1:-2,:] + 3*q[2:-1,:] + 2*q[3:,:])/6. # 3rd order, minus side
@@ -156,8 +165,49 @@ def advect3(q,u,v,dx,dy):
     dqdt += -v*dqdy
     
     return dqdt
-####################################
-def pgf(p,dx,dy):
+
+def advect3(q,u,v,dx,dy,periodic=False): 
+# 3rd-order upwind advection
+# q,u,v are co-located
+    sh = q.shape
+    Q = np.zeros( (sh[0],sh[1]+4) )
+    Q[:, 2:-2 ] = q
+     
+    if periodic=='U' or periodic=='u':        
+        Q[ : , :2] = q[ : , -3:-1 ]
+        Q[ : , -2:] = q[ :, 1:3 ]
+    elif periodic=='v' or periodic=='w' or periodic=='b':
+        Q[ : , :2 ]  = q[ : , -2: ]
+        Q[ : , -2: ] = q[ : , :2 ] 
+    
+    dqdt=np.zeros(sh)
+    dqmx=np.zeros(sh)
+    dqpx=np.zeros(sh)
+    dqmy=np.zeros(sh)
+    dqpy=np.zeros(sh)
+
+# "m" is difference biased to the minus side, "p" to the plus side
+# must use first order "#1" if too close to wall
+    
+    dqmx[:,:] =  (2*Q[:,3:-1] + 3*Q[:,2:-2] - 6*Q[:,1:-3] + Q[:,:-4])/6. 
+    dqpx[:,:] = -(2*Q[:,1:-3] + 3*Q[:,2:-2] - 6*Q[:,3:-1] + Q[:,4:] )/6.
+
+    dqmy[1,:]  = q[1,:]-q[0,:]  #1
+    dqmy[2:-1,:] = (2*q[3:,:]+3*q[2:-1,:]-6*q[1:-2,:]+q[:-3,:])/6. #3
+    dqpy[-2,:] = q[-1,:]-q[-2,:] #1
+    dqpy[1:-2,:] = -(2*q[0:-3,:]+3*q[1:-2,:]-6*q[2:-1,:]+q[3:,:])/6. #3
+
+# use derivatives biased to the upwind side:
+    dqdx=np.where(u>0.,dqmx,dqpx)/dx
+    dqdy=np.where(v>0.,dqmy,dqpy)/dy
+
+# advective terms:
+    dqdt+=-u*dqdx
+    dqdt+=-v*dqdy
+    
+    return dqdt
+#####################################Corners are broken, but the periodicity works
+def pgfOld(p,dx,dy):
 # calculated pressure gradient force on the u-grid
 # note calculation on the boundaries assume pressure gradient force
 # along boundary is the same as calculated 1/2 a grid point away from the boundary
@@ -166,18 +216,50 @@ def pgf(p,dx,dy):
 
     dpy =  p[1:,:]-p[:-1,:] # delta p in the x direction
     dvdt[1:-1,1:-1] = -.5* ( dpy[:,:-1] + dpy[:,1:] ) /dy #average to put on u-grid
-    dvdt[1:-1,0] =  -.5* ( dpy[:,-1] + dpy[:,1] ) /dy #dvdt along left boundary
-    dvdt[1:-1,-1] = dvdt[1:-1,0] #dvdt along right boundary
+    dvdt[1:-1,0] =  -dpy[:,0] /dy #dvdt along left boundary
+    dvdt[1:-1,-1] = dvdt[1:-1,0]
+    #dvdt[1:-1,-1] = -dpy[:,-1] /dy #dvdt along right boundary
 
     dpx = p[:,1:]-p[:,:-1] # delta p in the y direction
     dudt[1:-1,1:-1] = -.5* ( dpx[:-1,:] + dpx[1:,:] ) /dx #average to put on u-grid
-    dudt[0,1:-1] =  -dpx[0,:] /dx #dudt along bottom boundary
-    dudt[-1,1:-1] = -dpx[-1,:] /dx #dudt along top boundary
+    dudt[1:-1,0] =  -.5* ( dpy[:,-1] + dpy[:,1] ) /dy #dvdt along left boundary
+    dudt[1:-1,-1] = dudt[1:-1,0] #dvdt along right boundary
+    #dudt[0,1:-1] =  -dpx[0,:] /dx #dudt along bottom boundary
+    #dudt[-1,1:-1] = -dpx[-1,:] /dx #dudt along top boundary
 
     return dudt,dvdt
 
+def pgf(p,dx,dy): 
 
-# In[61]:
+    dudt=np.zeros( (p.shape[0]+3, p.shape[1]+3) )
+    #dudt=np.zeros( (p.shape[0]+1, p.shape[1]+1) )
+    dvdt=np.zeros( dudt.shape )
+    
+    P = np.zeros( (p.shape[0]+2 , p.shape[1]+2 ) )
+    P[1:-1,1:-1] = p
+    P[0,1:-1] = p[-1,:]
+    P[-1,1:-1] = p[0,:]
+    P[1:-1,0] = p[:,-1]
+    P[1:-1,-1] = p[:,0]
+    
+    dpx = (P[:,1:]-P[:,:-1])/dx 
+    dudt[1:-1,1:-1] = -.5*(dpx[1:,:] + dpx[:-1,:])   
+    dudt[1:-1,-1] = -.5*(dpx[1:,-1] + dpx[:-1,1])
+    dudt[1:-1,0] = dudt[1:-1,-1]
+    dudt[1,1] = -.5*(dpx[1,1] + dpx[1,2])
+    dudt[1,-2] = dudt[-2,1] = dudt[-2,-2] = dudt[1,1]
+    
+    dpy =  (P[1:,:]-P[:-1,:])/dy 
+    dvdt[1:-1,1:-1] = -.5*(dpy[:,1:] + dpy[:,:-1])    
+    dvdt[-1,1:-1] = -.5*(dpy[-1,1:] + dpy[1,:-1])
+    dvdt[0,1:-1] = dvdt[-1,1:-1]
+    dvdt[1,1] = -.5*(dpy[1,1] + dpy[2,1])
+    dvdt[1,-2] = dvdt[-2,1] = dvdt[-2,-2] = dvdt[1,1]
+    
+    return dudt[1:-1,1:-1],dvdt[1:-1,1:-1] #[1:-1,1:-1]
+
+
+# In[132]:
 
 # make the grid
 Nx = 101 # number of x grid points for u
@@ -195,57 +277,54 @@ xu,yu = np.meshgrid(x1u,y1u) # x and y locations on the u-grid
 xp,yp = np.meshgrid(x1p,y1p) # x and y locations on the p-grid
 
 
-# In[62]:
+# In[133]:
 
 print(xu.shape)
 print(xu)
 
 
-# In[63]:
+# In[134]:
 
 print(xp.shape)
 print(xp)
 
 
-# In[64]:
+# In[135]:
 
 print(yu)
 
 
 # Note the convention of meshgrid and matplotlib:  The **first** index controls the variation of $y$, the **second** index controls the variation of $x$. That protocol will also be true for all of our 2-D fields. This may be confusing because when normally write $h(x,y)$ we might expect in a python array `h[j,i]` that `i` controls the y-coordinate, but in fact `i` controls the x-coordinate.
 
-# In[65]:
+# In[136]:
 
 print("x:" ,xu[1,1], xu[1,2])
 print("y:" ,yu[1,1], yu[1,2])
 
 
-# In[66]:
+# In[228]:
 
 # initialize u, v, h
 xc = .5*xmax # center of initial Gaussian
 yc = .5*ymax # center of iniital Gaussian
-#xc2 = .7*xmax
-#yc2 = .7*xmax
-gwidth = .2 # Gaussian width
+xc2 = .7*xmax
+yc2 = .5*xmax
 waveamp = .2 # amplitude of initial Gaussian
-hi = 1. + 0*waveamp*np.exp( -((xp-xc)/gwidth)**2  - ((yp-yc)/gwidth)**2 ) #initial h
-ui = 0. + waveamp*np.exp( -((xu-xc)/.3)**2  - ((yu-yc)/.1)**2 ) #0.*xu #initial u
+hi = 1.+0*waveamp*np.exp(-((xp-xc)/.3)**2-((yp-yc)/.1)**2) #initial h
+ui = 0.+waveamp*np.exp(-((xu-xc)/.3)**2-((yu-yc)/.1)**2)-0*waveamp*np.exp(-((xu-xc2)/.1)**2-((yu-yc2)/.1)**2) #0.*xu #initial u
 vi = 0.*xu #initial v
 
 
-# http://matplotlib.org/examples/pylab_examples/contour_demo.html
-#     
-
-# In[67]:
+# In[229]:
 
 quick,simple = plt.subplots(figsize=(6,6))
-CH = simple.contour(xp,yp,hi) #must assign a variable name to the contour plot
+#CH = simple.contour(xp,yp,hi) #must assign a variable name to the contour plot
+CH = simple.contour(xu,yu,ui) #must assign a variable name to the contour plot
 plt.clabel(CH, fontsize=9, inline=1);
 #plt.savefig('contours.png')
 
 
-# In[68]:
+# In[216]:
 
 # needed for contour plots of h in the animation:
 lowc = .75 #lowest contour
@@ -262,9 +341,9 @@ vd = 2 # vector skip (vd=1 plots all arrows)
 speedmax = 0.05 # anticipated maximum speed
 
 
-# In[69]:
+# In[217]:
 
-fcoriolis = 10
+fcoriolis = 1
 cphase = 1.
 u_est = 0.6
 dtlim = 0.2 # fraction of a grid space a wave is allowed to travel in one time unit
@@ -279,15 +358,42 @@ tstop = 1.75 # stop when t>tstop
 dplot = .05 # time increment between plots
 
 #Variable Stepping
-nsteps = 500
+nsteps = tstop / dt
 mult = 2 #lambda^nsteps
 c = mult**(1/nsteps)
 dti = tstop*((c-1)/(mult-1))
 
-aborder = 3 # Adams-Bashforth order: 1, 2 or 3 [Set to 10 for Forwards-Backwards]
+aborder = 10 # Adams-Bashforth order: 1, 2 or 3 [Set to 10 for Forwards-Backwards]
+varStep = True
 expt = '%d,%3.2f,%5.2f,%d' % (aborder, dtlim, fcoriolis, Ny)
 print(expt)
 print(fcoriolis,dt,dt*fcoriolis)
+
+
+# In[218]:
+
+def plot(xp,yp,h,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt):
+    ax2.clear()
+    CF=ax2.contourf(xp,yp,h,mylevs,zorder=1)
+    ax2.axis('off')
+    Q=ax2.quiver(xu[::vd,::vd],yu[::vd,::vd],u[::vd,::vd]*ymax/xmax,v[::vd,::vd],
+        scale=speedmax*Nx/vd,units='width',zorder=3) #normally ymax/xmax =1 
+    stop_clipping(ax2)
+    ax2.quiverkey(Q,-.1,.95,speedmax,'{0:7.3f}'.format(speedmax),zorder=4)
+    ax2.text(.5,-.05,expt,fontsize=22)
+    ax2.text(.05,-.05,'t={0:5.3f}'.format(t),fontsize=22) 
+    if t<dt/2.: 
+        mycbar = myfig.colorbar(CF,ax=ax3,fraction=0.4)
+        mycbar.ax.yaxis.set_ticks_position('left')
+        sooner = mycbar.ax.yaxis.get_ticklabels()
+        for boomer in sooner:
+            boomer.set_fontsize(12)
+    clear_output(wait=True)
+    display(myfig) 
+    #if plotcount == 1:
+    #    plotcount+=1
+    #    myfig.savefig('Initial.png')
+    #Time.sleep(2.)
 
 
 # ##  Notes about the simulation below.
@@ -296,7 +402,7 @@ print(fcoriolis,dt,dt*fcoriolis)
 # 
 # * The simulation is a bit slow to compute. One reason is that the time step is limited by the gravity waves, which move with speed of 1. 
 
-# In[70]:
+# In[219]:
 
 t=0
 tplot=0. # next time to make a plot
@@ -329,7 +435,7 @@ hstore = [ ]
 #hstore = [h[nyc,nxc]]
 #hstore = [ vorticity(u,v,dx,dy)[50,50] ]
 tstore = [  ] # for storing the corresponding time of the value
-plotcount=1
+plotcount=10
 
 if aborder == 10:
     dt = dti
@@ -337,29 +443,11 @@ if aborder == 10:
 while t < tstop + dt/2.:
     nstep+=1
     abnow=min(nstep,aborder)
-    if tplot-dt/2. < t <tplot+dt/2.: #plot
-        ax2.clear()
-        CF=ax2.contourf(xp,yp,h,mylevs,zorder=1)
-        ax2.axis('off')
-        Q=ax2.quiver(xu[::vd,::vd],yu[::vd,::vd],u[::vd,::vd]*ymax/xmax,v[::vd,::vd],
-                scale=speedmax*Nx/vd,units='width',zorder=3) #normally ymax/xmax =1 
-        stop_clipping(ax2)
-        ax2.quiverkey(Q,-.1,.95,speedmax,'{0:7.3f}'.format(speedmax),zorder=4)
-        ax2.text(.5,-.05,expt,fontsize=22)
-        ax2.text(.05,-.05,'t={0:5.3f}'.format(t),fontsize=22)  
-        if t<dt/2.: 
-            mycbar = myfig.colorbar(CF,ax=ax3,fraction=0.4)
-            mycbar.ax.yaxis.set_ticks_position('left')
-            sooner = mycbar.ax.yaxis.get_ticklabels()
-            for boomer in sooner:
-                boomer.set_fontsize(12)
-        clear_output(wait=True)
-        display(myfig) 
-        tplot = min(tstop,t + dplot)
-        #if plotcount == 1:
-        #    plotcount+=1
-        #    myfig.savefig('Initial.png')
-        Time.sleep(2.)
+    if plotcount == 10: #plot
+        plot(xp,yp,h,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt)
+        plotcount = 0
+    else:
+        plotcount += 1
     
     hu = p2u(h) # calculate h on the u grid
     
@@ -367,16 +455,12 @@ while t < tstop + dt/2.:
     
     dudt,dvdt = pgf(h,dx,dy) #pressure gradient force
     
-    dudt += advect3(u,u,v,dx,dy) # no option for other than 3rd order 
-    dvdt += advect3(v,u,v,dx,dy) 
+    dudt += advect3(u,u,v,dx,dy,'u') # no option for other than 3rd order 
+    dvdt += advect3(v,u,v,dx,dy,'v') 
     
 #Coriolis force here:
     dudt += fcoriolis*v
     dvdt += -fcoriolis*u
-    #dudt[:,0]=0. # bundary condition must be enforced
-    #dudt[:,-1]=0.
-    dvdt[0,:]=0.
-    dvdt[-1,:]=0.
 #end Coriolis force
     
     dudta = [dudt.copy()] + dudta[:-1]
@@ -392,7 +476,6 @@ while t < tstop + dt/2.:
         u += dt*ab_blend(dudta,abnow)
         v += dt*ab_blend(dvdta,abnow)
         h += dt*ab_blend(dhdta,abnow)
-        
     
 #NRG CONS
 #    h2 = h**2
@@ -416,20 +499,39 @@ while t < tstop + dt/2.:
 #    hstore.append(h[nyc,nxc])
 #    hstore.append( h.mean() )
     tstore.append( t )
-    dt = dt*c
+    if varStep == True:
+        dt = dt*c
     
     assert u.max()<2.e10, 'kaboom!'
 
-
+highres = False
+if highres == True:
+    np.save('HR_u',u)
+    np.save('HR_v',v)
+    np.save('HR_h',h)
+    
+    hu = p2u(h) # calculate h on the u grid
+    dhdt = -divergence(u*hu,v*hu,dx,dy)
+    dudt,dvdt = pgf(h,dx,dy) #pressure gradient force
+    dudt += advect3(u,u,v,dx,dy,'u') # no option for other than 3rd order 
+    dvdt += advect3(v,u,v,dx,dy,'v') 
+    dudt += fcoriolis*v
+    dvdt += -fcoriolis*u
+    np.save('HR_hu',hu)
+    np.save('HR_dhdt',dhdt)
+    np.save('HR_dudt',dudt)
+    np.save('HR_dvdt',dvdt)
+    
+    
 plt.close() 
 
 
-# In[19]:
+# In[220]:
 
 print(nstep)
 
 
-# In[20]:
+# In[221]:
 
 q3,zetaplot = plt.subplots(figsize=(8,8))
 zetaplot.plot(tstore,hstore)
@@ -441,7 +543,7 @@ zetaplot.grid()
 #q3.savefig('zetacenterstudy.png')
 
 
-# In[21]:
+# In[222]:
 
 myfig, trace = plt.subplots(figsize=(8,6))
 trace.plot(tstore,hstore)
@@ -450,7 +552,7 @@ trace.grid()
 print(min(hstore),max(hstore))
 
 
-# In[22]:
+# In[223]:
 
 vort=vorticity(u,v,dx,dy) # fix the vorticity function!!
 quick,simple = plt.subplots(figsize=(6,6))
