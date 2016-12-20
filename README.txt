@@ -7,6 +7,5 @@ ShallowWater Branch = 2D Dimensionless Shallow Water solver code - in progress
 Current status:
 
 Shallow Water : - Forwards-Backwards Scheme fully functional
-		- Fixed top and bottom boundary's working
-		- Periodic left and right boundary's started and not working - kaboom
-		- RMSE calculations - not started
+		- Periodic boundaries working - includes top and bottom boundaries
+		- RMSE calculations - high res model state saved
