@@ -42,7 +42,7 @@
 # 
 # 
 
-# In[713]:
+# In[330]:
 
 import matplotlib.pyplot as plt
 get_ipython().magic('matplotlib inline')
@@ -56,7 +56,7 @@ from IPython.core.display import HTML
 HTML( open('my_css.css').read() )
 
 
-# In[714]:
+# In[331]:
 
 # Expands the margins of a matplotlib axis, 
 # and so prevents arrows on boundaries from being clipped. 
@@ -66,7 +66,7 @@ def stop_clipping(ax,marg=.02): # default is 2% increase
     ax.axis([l-marg*dx, r+marg*dx, b-marg*dy, t+marg*dy])
 
 
-# In[715]:
+# In[376]:
 
 # dqdt requires a list of the time derivatives for q, stored 
 # in order from present to the past
@@ -84,6 +84,8 @@ def forback(q,dt,dqdt,dx,dy,fcoriolis): #q = [u,v,h], dqdt = [dudta[0],dvdta[0],
     hn = q[2] + dt*dqdt[2]
     un = q[0] + dt*dqdt[0]
     vn = q[1] + dt*dqdt[1]
+    vn[0,:]=0.
+    vn[-1,:]=0.
     hun = p2u(hn) # calculate h on the u grid
     dhdtn = -divergence(un*hun,vn*hun,dx,dy)
     dudtn,dvdtn = pgf(hn,dx,dy) #pressure gradient force
@@ -91,15 +93,13 @@ def forback(q,dt,dqdt,dx,dy,fcoriolis): #q = [u,v,h], dqdt = [dudta[0],dvdta[0],
     dvdtn += advect3(vn,un,vn,dx,dy,'v')
     dudtn += fcoriolis*vn
     dvdtn += -fcoriolis*un
-    dvdtn[0,:]=0.
-    dvdtn[-1,:]=0.
     h = q[2] + dt*dhdtn
     u = q[0] + dt*dudtn
     v = q[1] + dt*dvdtn
-    return [u,v,h]            
+    return [u,v,h]        
 
 
-# In[771]:
+# In[391]:
 
 ##############################################90% SURE THIS IS CORRECT
 def p2u(p):
@@ -168,9 +168,10 @@ def advect3Old(q,u,v,dx,dy):
     
     return dqdt
 
-def advect3(q,u,v,dx,dy,periodic=False): 
+def advect3(q,u,v,dx,dy,periodic): 
 # 3rd-order upwind advection
 # q,u,v are co-located
+    
     sh = q.shape
     Q = np.zeros( (sh[0],sh[1]+4) )
     Q[:, 2:-2 ] = q
@@ -194,8 +195,10 @@ def advect3(q,u,v,dx,dy,periodic=False):
     dqmx[:,:] =  (2*Q[:,3:-1] + 3*Q[:,2:-2] - 6*Q[:,1:-3] + Q[:,:-4])/6. 
     dqpx[:,:] = -(2*Q[:,1:-3] + 3*Q[:,2:-2] - 6*Q[:,3:-1] + Q[:,4:] )/6.
 
+    dqmy[-1,:] = q[-1,:]-q[-2,:]  #1
     dqmy[1,:]  = q[1,:]-q[0,:]  #1
     dqmy[2:-1,:] = (2*q[3:,:]+3*q[2:-1,:]-6*q[1:-2,:]+q[:-3,:])/6. #3
+    dqpy[0,:] = q[1,:]-q[0,:]  #1
     dqpy[-2,:] = q[-1,:]-q[-2,:] #1
     dqpy[1:-2,:] = -(2*q[0:-3,:]+3*q[1:-2,:]-6*q[2:-1,:]+q[3:,:])/6. #3
 
@@ -208,6 +211,7 @@ def advect3(q,u,v,dx,dy,periodic=False):
     dqdt+=-v*dqdy
     
     return dqdt
+
 #####################################Corners are broken, but the periodicity works
 def pgfOld(p,dx,dy):
 # calculated pressure gradient force on the u-grid
@@ -242,24 +246,32 @@ def pgf(p,dx,dy):
     P[:,0] = p[:,-1]
     P[:,-1] = p[:,0]
     
+    #Nowhere in the dudt section does it handle dudt[0,1:-1] or dudt=[-1,1:-1] (Top and bot)
+    #Nowhere in the dvdt section does it handle dvdt[1:-1,0] or dudt=[1:-1,-1] (left and right)
+    #therefore no change in u along top and bottom boundary, so u is always 0 there
+    #Since the base u field is 0, dudt from this is = to f*u.
     dpx = (P[:,1:]-P[:,:-1])/dx 
     dudt[1:-1,1:-1] = -.5*(dpx[1:,:] + dpx[:-1,:])   
     dudt[1:-1,-1] = -.5*(dpx[1:,-1] + dpx[:-1,1])
     dudt[1:-1,0] = dudt[1:-1,-1]
-    dudt[1,1] = -.5*(dpx[1,1] + dpx[2,1])
-    dudt[1,-2] = dudt[-2,1] = dudt[-2,-2] = dudt[1,1]
+    dudt[0,0] = -.5*(dpx[0,0] + dpx[0,1])
+    dudt[0,-1] = dudt[0,0]
+    dudt[-1,0] = -.5*(dpx[-1,0] + dpx[-1,1])
+    dudt[-1,-1] = dudt[-1,0]
     
     dpy =  (P[1:,:]-P[:-1,:])/dy 
     dvdt[1:-1,1:-1] = -.5*(dpy[:,1:] + dpy[:,:-1])    
     dvdt[-1,1:-1] = -dpy[-1,1:] /dy
     dvdt[0,1:-1] = -dpy[0,1:] /dy
-    dvdt[1,1] = -.5*(dpy[1,1] + dpy[1,2])
-    dvdt[1,-2] = dvdt[-2,1] = dvdt[-2,-2] = dvdt[1,1]
+    dvdt[0,0] = -.5*(dpy[0,0] + dpy[-1,0])
+    dvdt[0,-1] = dvdt[0,0]
+    dvdt[-1,0] = -.5*(dpy[-1,0] + dpy[-2,0])
+    dvdt[-1,-1] = dvdt[-1,0]
     
     return dudt[:,1:-1],dvdt[:,1:-1] #[1:-1,1:-1]
 
 
-# In[772]:
+# In[392]:
 
 # make the grid
 Nx = 101 # number of x grid points for u
@@ -277,19 +289,19 @@ xu,yu = np.meshgrid(x1u,y1u) # x and y locations on the u-grid
 xp,yp = np.meshgrid(x1p,y1p) # x and y locations on the p-grid
 
 
-# In[773]:
+# In[393]:
 
 print(xu.shape)
 print(xu)
 
 
-# In[774]:
+# In[394]:
 
 print(xp.shape)
 print(xp)
 
 
-# In[775]:
+# In[395]:
 
 print(yu.shape)
 print(yu)
@@ -297,19 +309,19 @@ print(yu)
 
 # Note the convention of meshgrid and matplotlib:  The **first** index controls the variation of $y$, the **second** index controls the variation of $x$. That protocol will also be true for all of our 2-D fields. This may be confusing because when normally write $h(x,y)$ we might expect in a python array `h[j,i]` that `i` controls the y-coordinate, but in fact `i` controls the x-coordinate.
 
-# In[776]:
+# In[396]:
 
 print("x:" ,xu[1,1], xu[1,2])
 print("y:" ,yu[1,1], yu[1,2])
 
 
-# In[777]:
+# In[397]:
 
 def yhat(y,yc,w):
     return (y-yc)/w
 
 
-# In[778]:
+# In[398]:
 
 beta = 10.
 # initialize u, v, h
@@ -320,9 +332,12 @@ uo = .2 #max verlocity of jet
 ho = 1 #minimum height
 pshape = yp.shape
 ushape = yu.shape
+ui = np.zeros(xu.shape)
+hi = np.zeros(xp.shape)
 
 uyhat = yhat(yu,yc,w)
 pyhat = yhat(yp,yc,w)
+
 
 #initial v
 vi = 0.*xu 
@@ -334,7 +349,7 @@ for ycor in range(ushape[0]):
         if uyv >= -1 and uyv <= 1:
             ui[ycor,xcor] = uo*(1-3*uyv**2 + 3*uyv**4 - uyv**6)
         else:
-            ui[ycor,xcor] = 0
+            ui[ycor,xcor] = 0.
         
 #initial h
 for ycor in range(pshape[0]):
@@ -348,23 +363,34 @@ for ycor in range(pshape[0]):
             hi[ycor,xcor] = ho - (32/35)*(w*beta*uo*yc)
 
 
-# In[779]:
+# In[399]:
 
 quicku,simpleu = plt.subplots(figsize=(6,6))
 CHu = simpleu.contour(xu,yu,ui) #must assign a variable name to the contour plot
 plt.clabel(CHu, fontsize=9, inline=1)
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title('u initialisation')
+plt.savefig('initialu.png')
 quickh,simpleh = plt.subplots(figsize=(6,6))
 CHh = simpleh.contour(xp,yp,hi) #must assign a variable name to the contour plot
 plt.clabel(CHh, fontsize=9, inline=1)
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title('h initialisation')
+plt.savefig('initialh.png')
 quickb,simpleb1 = plt.subplots(figsize=(8,8))
 simpleb1.plot(ui[:,2],yu[:,2],'r-')
+simpleb1.set_xlabel('u',color='r')
+simpleb1.set_ylabel('y')
 simpleb2 = simpleb1.twiny()
-simpleb2.plot(hi[:,2],yp[:,2],'b-');
+simpleb2.plot(hi[:,2],yp[:,2],'b-')
+simpleb2.set_xlabel('h',color='b');
+plt.savefig('initialuh.png')
 
-#plt.savefig('contours.png')
 
 
-# In[780]:
+# In[400]:
 
 # needed for contour plots of h in the animation:
 lowc = .75 #lowest contour
@@ -381,13 +407,13 @@ vd = 2 # vector skip (vd=1 plots all arrows)
 speedmax = 0.05 # anticipated maximum speed
 
 
-# In[781]:
+# In[424]:
 
 #fcoriolis = 1
-fcoriolis = beta*yu[:,:]
+fcoriolis = yu[1,1] + beta*yu[:,:]
 cphase = 1.
 u_est = 0.6
-dtlim = 0.2 # fraction of a grid space a wave is allowed to travel in one time unit
+dtlim = 0.2 # fraction of a grid space a wave is allowed to travel in one time unit CHANGE THIS TO CHANGE dt AND dti
 dt = (dtlim *dx)/max(cphase,u_est)
 #dt = dtlim *dx # because wave speed is 1
 
@@ -395,32 +421,38 @@ fdt_crit = 0.5 #determined by experimentation, crit value when dtlim = 0.2
 
 dt = min(fdt_crit/beta,dt) #force fdt <= fdt_crit 
 
-tstop = 500 # stop when t>tstop
-dplot = 10. # time increment between plots
+tstop = 275 # stop when t>tstop
+dplot =  5 # time increment between plots
 
 #Variable Stepping
-nsteps = tstop / dt
+nsteps = int(tstop / dt)
 mult = 2 #lambda^nsteps
 c = mult**(1/nsteps)
 dti = tstop*((c-1)/(mult-1))
 
-aborder = 3 # Adams-Bashforth order: 1, 2 or 3 [Set to 10 for Forwards-Backwards
+aborder = 3 # Adams-Bashforth order: 1, 2 or 3 [Set to 10 for Forwards-Backwards]
 varStep = True
 if aborder != 10:
     varStep = False
-expt = '%d,%3.2f,%5.2f,%d' % (aborder, dtlim, beta, Ny)
+if aborder == 3:
+    expt = '%d,%2.1f,%d,%d,%.3f,%d' % (aborder, dtlim, beta, Ny, dt, nsteps) + ',' +str(varStep)
+elif aborder == 10:
+    if varStep:
+        expt = '%d,%2.1f,%d,%d,%.3f,%d' % (aborder, dtlim, beta, Ny, dti, nsteps) + ',' +str(varStep)
+    else:
+        expt = '%d,%2.1f,%d,%d,%.3f,%d' % (aborder, dtlim, beta, Ny, dt, nsteps) + ',' +str(varStep)
 print(expt)
 print(beta,dt,dt*beta)
 
 
-# In[782]:
+# In[402]:
 
 quick,simple3 = plt.subplots(figsize=(6,6))
 CH3 = simple3.contour(xu,yu,fcoriolis) #must assign a variable name to the contour plot
 plt.clabel(CH3, fontsize=9, inline=1);
 
 
-# In[783]:
+# In[403]:
 
 def plot(xp,yp,h,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt):
     ax2.clear()
@@ -430,8 +462,8 @@ def plot(xp,yp,h,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt):
         scale=speedmax*Nx/vd,units='width',zorder=3) #normally ymax/xmax =1 
     stop_clipping(ax2)
     ax2.quiverkey(Q,-.1,.95,speedmax,'{0:7.3f}'.format(speedmax),zorder=4)
-    ax2.text(.5,-.05,expt,fontsize=22)
-    ax2.text(.05,-.05,'t={0:5.3f}'.format(t),fontsize=22) 
+    ax2.text(.5,-.05,expt,fontsize=18)
+    ax2.text(.05,-.05,'t={0:5.3f}'.format(t),fontsize=18) 
     if t<dt/2.: 
         mycbar = myfig.colorbar(CF,ax=ax3,fraction=0.4)
         mycbar.ax.yaxis.set_ticks_position('left')
@@ -440,7 +472,7 @@ def plot(xp,yp,h,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt):
             boomer.set_fontsize(12)
     clear_output(wait=True)
     display(myfig) 
-    myfig.savefig('AAAA_'+str(int(t))+'_time.png')
+    myfig.savefig(str(int(t))+'_time.png')
     #Time.sleep(2.)
 
 
@@ -450,7 +482,7 @@ def plot(xp,yp,h,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt):
 # 
 # * The simulation is a bit slow to compute. One reason is that the time step is limited by the gravity waves, which move with speed of 1. 
 
-# In[784]:
+# In[404]:
 
 t=0
 tplot=-100. # next time to make a plot
@@ -499,15 +531,16 @@ while t < tstop + dt/2.:
     dhdt = -divergence(u*hu,v*hu,dx,dy)
     
     dudt,dvdt = pgf(h,dx,dy) #pressure gradient force
+    prevPdudt,prevPdvdt=dudt,dvdt
+    
     
     dudt += advect3(u,u,v,dx,dy,'u') # no option for other than 3rd order 
     dvdt += advect3(v,u,v,dx,dy,'v') 
+    prevAdudt,prevAdvdt=dudt,dvdt
     
 #Coriolis force here:
     dudt += fcoriolis*v
     dvdt += -fcoriolis*u
-    dvdt[0,:]=0.
-    dvdt[-1,:]=0.
 #end Coriolis force
     
     dudta = [dudt.copy()] + dudta[:-1]
@@ -523,6 +556,9 @@ while t < tstop + dt/2.:
         u += dt*ab_blend(dudta,abnow)
         v += dt*ab_blend(dvdta,abnow)
         h += dt*ab_blend(dhdta,abnow)
+    
+    v[0,:]=0.
+    v[-1,:]=0.
     
 #NRG CONS
 #    h2 = h**2
@@ -550,6 +586,18 @@ while t < tstop + dt/2.:
         dt = dt*c
     
     assert u.max()<2.e10, 'kaboom!'
+    
+print('hu:',hu[0,:],hu[-1,:])
+print('dhdt:',dhdt[0,:],dhdt[-1,:])
+print('PGF dudt:',prevPdudt[0,:],prevPdudt[-1,:])
+print('PGF dvdt:',prevPdvdt[0,:],prevPdvdt[-1,:])
+print('ADV dudt:',prevAdudt[0,:]-prevPdudt[0,:],prevAdudt[-1,:]-prevPdudt[-1,:])
+print('ADV dvdt:',prevAdvdt[0,:]-prevPdvdt[0,:],prevAdvdt[-1,:]-prevPdvdt[-1,:])
+print('COR dudt:',dudt[0,:]-prevAdudt[0,:],dudt[-1,:]-prevAdudt[-1,:])
+print('COR dvdt:',dvdt[0,:]-prevAdvdt[0,:],dvdt[-1,:]-prevAdvdt[-1,:])
+print('u:',u[0,:],u[-1,:])
+print('v:',v[0,:],v[-1,:])
+print('h:',h[0,:],h[-1,:])
 
 highres = False
 if highres == True:
@@ -573,9 +621,33 @@ if highres == True:
 plt.close() 
 
 
-# In[736]:
+# In[425]:
 
 print(nstep)
+
+
+# In[1076]:
+
+print(u[0,:])
+print(u[-1,:])
+print(v[0,:])
+print(v[-1,:])
+print(dudt[0,:])
+print(dudt[-1,:])
+print(dvdt[0,:])
+print(dvdt[-1,:])
+
+
+# In[1077]:
+
+print(u[:,0])
+print(u[:,-1])
+print(v[:,0])
+print(v[:,-1])
+print(dudt[:,0])
+print(dudt[:,-1])
+print(dvdt[:,0])
+print(dvdt[:,-1])
 
 
 # In[737]:
