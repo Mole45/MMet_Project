@@ -73,7 +73,7 @@ def euler1(q,dt,func):
 # In[4]:
 
 #Euler forwards time stepper
-def onestepVar(x,v,dt,dtStep,noStep,t=0):
+def onestepVar(x,v,dt,dtStep,noStep,K,M,t=0):
     tArr,xArr,vArr,conArr,dtArr = np.zeros(noStep+1),np.zeros(noStep+1),np.zeros(noStep+1),np.zeros(noStep+1),np.zeros(noStep+1)
     AccxArr,AccvArr = np.zeros(noStep+1),np.zeros(noStep+1)
     tArr[0],xArr[0],vArr[0],conArr[0],dtArr[0] = t,x,v,func_nrgCons(x,v),dt
@@ -83,8 +83,6 @@ def onestepVar(x,v,dt,dtStep,noStep,t=0):
     xvArr[0] = x
     xvArr[1] = v
     stepNo = 0
-    K = 1
-    M = 1
     theoryErrAccArr,AccErrAccArr = np.zeros(noStep+1),np.zeros(noStep+1)
     theoryErrAccArr[0],AccErrAccArr[0] = 0,0
     
@@ -100,11 +98,11 @@ def onestepVar(x,v,dt,dtStep,noStep,t=0):
         AccxArr[stepNo] = math.cos(t)
         AccvArr[stepNo] = -math.sin(t)
         theoryErrAccArr[stepNo] = 0.5*(M*(dtStep**2)*(dtArr[stepNo-1]**2)) + (1+ K*dtStep*dtArr[stepNo-1])*theoryErrAccArr[stepNo-1]
-        stepError = math.sqrt((xArr[stepNo]-AccxArr[stepNo])**2 + (vArr[stepNo]-AccvArr[stepNo])**2)-1
-        AccErrAccArr[stepNo] = ((AccErrAccArr[stepNo-1]*(t-dt))+dt*stepError)/t
+        stepError = math.sqrt((AccxArr[stepNo]-xArr[stepNo])**2 + (AccvArr[stepNo]-vArr[stepNo])**2)
+        AccErrAccArr[stepNo] = stepError #+ AccErrAccArr[stepNo-1]
     return conArr,xArr,vArr,tArr,AccxArr,AccvArr,dtArr,AccErrAccArr,theoryErrAccArr
 
-def onestepCon(x,v,tStop,tStep,noStep,t=0):
+def onestepCon(x,v,tStop,tStep,noStep,K,M,t=0):
     tArr,xArr,vArr,conArr,dtArr = np.zeros(noStep+1),np.zeros(noStep+1),np.zeros(noStep+1),np.zeros(noStep+1),np.zeros(noStep+1)
     AccxArr,AccvArr = np.zeros(noStep+1),np.zeros(noStep+1)
     tArr[0],xArr[0],vArr[0],conArr[0],dtArr[0] = t,x,v,func_nrgCons(x,v),tStep
@@ -114,8 +112,6 @@ def onestepCon(x,v,tStop,tStep,noStep,t=0):
     xvArr[0] = x
     xvArr[1] = v
     stepNo = 0
-    K = 1
-    M = 1
     theoryErrAccArr,AccErrAccArr = np.zeros(noStep+1),np.zeros(noStep+1)
     theoryErrAccArr[0],AccErrAccArr[0] = 0,0
     
@@ -129,26 +125,33 @@ def onestepCon(x,v,tStop,tStep,noStep,t=0):
         tArr[stepNo] = t
         AccxArr[stepNo] = math.cos(t)
         AccvArr[stepNo] = -math.sin(t)
-        stepError = math.sqrt((xArr[stepNo]-AccxArr[stepNo])**2 + (vArr[stepNo]-AccvArr[stepNo])**2)-1
-        AccErrAccArr[stepNo] = ((AccErrAccArr[stepNo-1]*(t-tStep))+tStep*stepError)/t
+        stepError = math.sqrt((AccxArr[stepNo]-xArr[stepNo])**2 + (AccvArr[stepNo]-vArr[stepNo])**2)
+        AccErrAccArr[stepNo] = stepError #+ AccErrAccArr[stepNo-1]
         theoryErrAccArr[stepNo] = (1+K*tStep)*theoryErrAccArr[stepNo-1] + 0.5*(M*(tStep**2))
     return conArr,xArr,vArr,tArr,AccxArr,AccvArr,dtArr,AccErrAccArr,theoryErrAccArr
 
 
 # # Start Here for Experiments
 
-# In[13]:
+# In[30]:
 
 #define stuff
 scheme = 'var'
-nsteps = 1000
+nsteps = 100
 timestop = 2*math.pi
-maxtimestep = 0.5
-initialtimestep = 0.002253609714568
 initialX = 1.0
 initialV = 0.0
 timestep = timestop/nsteps
-timestepstep = 1.00179336562937  #From spreadsheet
+mult = 2 #lambda^nsteps
+timestepstep = mult**(1/nsteps)
+initialtimestep = timestop*((timestepstep-1)/(mult-1))
+maxtimestep = initialtimestep*timestepstep**(nsteps-1)
+
+K1,K2,K3=0.1,5,10
+#M1,M2,M3=0.1,5,10
+#K=1
+M=1
+
 if scheme == 'var':
     print("The time step multiplier is",timestepstep)
 elif scheme == 'con':
@@ -157,40 +160,40 @@ elif scheme == 'HR':
     print("The time step for the high resolution run is",timestep)
 
 
-# In[14]:
+# In[31]:
 
 if scheme == 'var':
-    VplotC,VplotX,VplotV,VplotT,VplotAX,VplotAV,VplotDT,VplotAE,VplotTE = onestepVar(initialX,initialV,initialtimestep,timestepstep,nsteps)
+    VplotC,VplotX,VplotV,VplotT3,VplotAX,VplotAV,VplotDT,VplotAE,VplotTE3 = onestepVar(initialX,initialV,initialtimestep,timestepstep,nsteps,K3,M)
 elif scheme == 'con':
-    CplotC,CplotX,CplotV,CplotT,CplotAX,CplotAV,CplotDT,CplotAE,CplotTE = onestepCon(initialX,initialV,timestop,timestep,nsteps)
+    CplotC,CplotX,CplotV,CplotT3,CplotAX,CplotAV,CplotDT,CplotAE,CplotTE3 = onestepCon(initialX,initialV,timestop,timestep,nsteps,K3,M)
 elif scheme == 'HR':
-    HplotC,HplotX,HplotV,HplotT,HplotAX,HplotAV,HplotDT,HplotAE,HplotTE = onestepCon(initialX,initialV,timestop,timestep,nsteps)
+    HplotC,HplotX,HplotV,HplotT,HplotAX,HplotAV,HplotDT,HplotAE,HplotTE = onestepCon(initialX,initialV,timestop,timestep,nsteps,K,M)
 #print("No. Steps taken was",len(plotX)-1,"steps")
 #print("The total time forecast was :",plotT[-1])
 #print("The total number of revolutions was:",plotT[-1]/(2*math.pi))
 #print("The final time step was:",plotDT[-1])
 
 
-# In[16]:
+# In[33]:
 
-figD, axesD = plt.subplots(nrows=2,ncols=1,figsize=(18,12)) 
-axesD[0].semilogy(VplotT,VplotTE,'b.-',label='Variable    $\lambda$=1.0018')
-axesD[0].semilogy(VplotT1,VplotTE1,'m.-',label='Variable    $\lambda$=1.0007')
-axesD[0].semilogy(CplotT,CplotTE,'r.-',label='Constant $\Delta t$=0.0063')
-axesD[0].set_xlim(0,timestop)
-axesD[0].set_title('Theoretical, K = 1, M = 1, nsteps = 1000')
-axesD[0].set_ylabel('Error in Radius')
-axesD[0].set_xlabel('Time')
-axesD[0].legend(loc=4)
-axesD[1].semilogy(VplotT,VplotTE,'b.-',label='Variable    $\lambda$=1.0007')
-axesD[1].semilogy(CplotT,CplotTE,'r.-',label='Constant $\Delta t$=0.0063')
-axesD[1].set_xlim(0,0.1)
-axesD[1].set_title('Theoretical, K = 1, M = 1, nsteps = 1000')
-axesD[1].set_ylabel('Error in Radius')
-axesD[1].set_xlabel('Time')
-axesD[1].legend(loc=4)
-figD.tight_layout()
-figD.savefig('ErrAccVarConComparisonPresentation_K1M1.png')
+#figD, axesD = plt.subplots(nrows=2,ncols=1,figsize=(18,12)) 
+#axesD[0].semilogy(VplotT,VplotTE,'b.-',label='Variable    $\lambda$=1.0018')
+#axesD[0].semilogy(VplotT1,VplotTE1,'m.-',label='Variable    $\lambda$=1.0007')
+#axesD[0].semilogy(CplotT,CplotTE,'r.-',label='Constant $\Delta t$=0.0063')
+#axesD[0].set_xlim(0,timestop)
+#axesD[0].set_title('Theoretical, K = 1, M = 1, nsteps = 1000')
+#axesD[0].set_ylabel('Error in Radius')
+#axesD[0].set_xlabel('Time')
+#axesD[0].legend(loc=4)
+#axesD[1].semilogy(VplotT,VplotTE,'b.-',label='Variable    $\lambda$=1.0007')
+#axesD[1].semilogy(CplotT,CplotTE,'r.-',label='Constant $\Delta t$=0.0063')
+#axesD[1].set_xlim(0,0.1)
+#axesD[1].set_title('Theoretical, K = 1, M = 1, nsteps = 1000')
+#axesD[1].set_ylabel('Error in Radius')
+#axesD[1].set_xlabel('Time')
+#axesD[1].legend(loc=4)
+#figD.tight_layout()
+#figD.savefig('ErrAccVarConComparisonPresentation_K1M1.png')
 
 
 #figD, axesD = plt.subplots(nrows=1,ncols=2,figsize=(18,10)) 
@@ -209,22 +212,46 @@ figD.savefig('ErrAccVarConComparisonPresentation_K1M1.png')
 #figD.tight_layout()
 #figD.savefig('ErrAccVarConComparison2plots_K1M1.png')
 
+figD, axesD = plt.subplots(nrows=1,ncols=3,figsize=(10,5)) 
+axesD[0].semilogy(VplotT1,VplotTE1,'b-',label='Variable')
+axesD[0].semilogy(CplotT1,CplotTE1,'r-',label='Constant')
+axesD[0].set_xlim(0,timestop)
+axesD[0].set_title('K='+str(K1)+', M='+str(M),y=1.1)
+axesD[0].set_xlabel('$t$')
+axesD[0].set_ylabel('$|Ɛ|$',rotation=360,labelpad=15)
+axesD[1].semilogy(VplotT2,VplotTE2,'b-',label='Variable')
+axesD[1].semilogy(CplotT2,CplotTE2,'r-',label='Constant')
+axesD[1].set_xlim(0,timestop)
+axesD[1].set_title('K='+str(K2)+', M='+str(M),y=1.1)
+axesD[1].set_xlabel('$t$')
+axesD[2].semilogy(VplotT3,VplotTE3,'b-',label='Variable')
+axesD[2].semilogy(CplotT3,CplotTE3,'r-',label='Constant')
+axesD[2].set_xlim(0,timestop)
+axesD[2].set_title('K='+str(K3)+', M='+str(M),y=1.1)
+axesD[2].set_xlabel('$t$')
+figD.tight_layout()
+figD.savefig('FIG3p5.png')
 
-# In[231]:
+
+# In[19]:
 
 figD2, axesD2 = plt.subplots(nrows=1,ncols=1,figsize=(9,10)) 
-axesD2.plot(VplotT,VplotTE,'b.-',label='Theory Var')
-axesD2.plot(VplotT,VplotAE,'m.-',label='Actual Var')
-axesD2.plot(CplotT,CplotTE,'r.-',label='Theory Con')
-axesD2.plot(CplotT,CplotAE,'y.-',label='Actual Con')
+axesD2.plot(VplotT,VplotTE,'b-',label='Theoretical Variable')
+#axesD2.plot(VplotT,VplotAE,'m-',label='Actual Variable')
+axesD2.semilogy(CplotT,CplotTE,'r-',label='Theoretical Constant')
+#axesD2.plot(CplotT,CplotAE,'y-',label='Actual Constant')
 axesD2.set_xlim(0,timestop)
-axesD2.set_title('K=1, M=1, nSteps=100, dtinit=0.001')
+axesD2.set_title('K='+str(K)+', M='+str(M)+', $N$='+str(nsteps)+',\n$\Delta t_{con}$='+"%.3f" %timestep+',$\lambda^N$='+str(mult))
 axesD2.legend(loc=2)
+#axesD2.set_xlim(6.22,timestop)
+#axesD2.set_ylim(0.215,0.228)
+axesD2.set_xlabel('$t$')
+axesD2.set_ylabel('$|Ɛ|$',rotation=360)
 figD2.tight_layout()
-#figD2.savefig('ErrAccVarConComparison1plot_K1M10.png')
+figD2.savefig('FIG3p4.png')
 
 
-# In[232]:
+# In[58]:
 
 Verror = [math.sqrt((a-c)**2 + (b-d)**2) for a,b,c,d in zip(VplotX,VplotV,VplotAX,VplotAV)]
 Cerror = [math.sqrt((e-g)**2 + (f-h)**2) for e,f,g,h in zip(CplotX,CplotV,CplotAX,CplotAV)]

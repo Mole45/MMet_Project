@@ -19,7 +19,7 @@
 # E = x^2 + v^2
 # $$
 
-# In[2]:
+# In[11]:
 
 import math
 import matplotlib.pyplot as plt
@@ -32,7 +32,7 @@ from IPython.core.display import HTML
 HTML( open('my_css.css').read() )
 
 
-# In[3]:
+# In[12]:
 
 ##Define the equations as functions for use in the program
 
@@ -53,7 +53,7 @@ def func_nrgCons(x,v):    #E = x^2 + v^2
 # 
 # $$\phi_{n+1} = \phi_n + \Delta tf(\phi_n)$$
 # 
-# ### 1st Order : Forwards-Backwards
+# ### 1st Order : Forwards-Backwards (Matsuno)
 # 
 # $$\phi_{n+1} = \phi_n + \Delta tf(\phi_n + \Delta tf(\phi_n))$$
 # 
@@ -67,7 +67,7 @@ def func_nrgCons(x,v):    #E = x^2 + v^2
 # 
 # $\phi$ will be represented by q in the code below (q = quantity)
 
-# In[4]:
+# In[13]:
 
 # dqdt is a list of the stored time derivatives for q, stored in order from present to the past
 #ie. f(q_n) = dqdt[0] ; f(q_n-1) = dqdt[1] ;...
@@ -114,7 +114,7 @@ def RK(dt,q,func):
     return np.array(q + (s1 + 2*s2 + 2*s3 + s4)/6)
 
 
-# In[5]:
+# In[14]:
 
 #Testing.
 #Let i and j be junk, and djdt to the list of time derivatives of j, at the current time step, previous time step and the 
@@ -132,7 +132,7 @@ def RK(dt,q,func):
 #RK(dt,j,func_dvdt)
 
 
-# In[6]:
+# In[15]:
 
 #Testing.
 #Keeping djdt only 3 items long while updating to have the most recent time step first
@@ -143,7 +143,7 @@ def RK(dt,q,func):
 #djdt
 
 
-# In[7]:
+# In[16]:
 
 #Euler forwards time stepper
 def onestep(x,v,tStop,tStep,noStep,t=0):
@@ -246,7 +246,7 @@ def fourstep(x,v,tStop,tStep,noStep,t=0):
     return conArr,xArr,vArr,tArr,AccxArr,AccvArr
 
 
-# In[34]:
+# In[17]:
 
 ##### THESE ARRAYS ARE DEFINED FOR THE COMPARISON PLOT AT THE END OF THIS SECTION
 ##### DO NOT RUN THIS AT THE START OF EACH EXPERIMENT UNLESS YOU WANT TO EMPTY THE ARRAYS
@@ -268,7 +268,7 @@ print(eulerArr,fbArr,lfArr,rkArr,stepArr,ticker)
 # # Start Here for Experiments
 # ### Select this cell and run all above before starting experiments
 
-# In[347]:
+# In[18]:
 
 #define stuff
 nsteps = 2000
@@ -280,7 +280,7 @@ timestep = timestop/nsteps
 print("The time step is",timestep)
 
 
-# In[348]:
+# In[19]:
 
 if scheme == 1:
     plotC,plotX,plotV,plotT,plotAX,plotAV = onestep(initialX,initialV,timestop,timestep,nsteps)
@@ -295,7 +295,7 @@ else:
 print("No. Steps taken was",len(plotX)-1,"steps")
 
 
-# In[349]:
+# In[20]:
 
 figA, axesA = plt.subplots(nrows=1,ncols=2,figsize=(18,18))
 axesA[0].plot(plotX,plotV)

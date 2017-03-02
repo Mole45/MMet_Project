@@ -20,7 +20,7 @@
 # E = x^2 + v^2
 # $$
 
-# In[4]:
+# In[1]:
 
 import math
 import matplotlib.pyplot as plt
@@ -33,7 +33,7 @@ from IPython.core.display import HTML
 HTML( open('my_css.css').read() )
 
 
-# In[5]:
+# In[2]:
 
 ##Define the equations as functions for use in the program
 

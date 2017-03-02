@@ -42,7 +42,7 @@
 # 
 # 
 
-# In[713]:
+# In[2]:
 
 import matplotlib.pyplot as plt
 get_ipython().magic('matplotlib inline')
@@ -51,12 +51,13 @@ import time as Time
 import math
 import numpy as np
 import matplotlib
+from matplotlib.colors import LinearSegmentedColormap
 matplotlib.rcParams.update({'font.size': 22})
 from IPython.core.display import HTML
 HTML( open('my_css.css').read() )
 
 
-# In[714]:
+# In[3]:
 
 # Expands the margins of a matplotlib axis, 
 # and so prevents arrows on boundaries from being clipped. 
@@ -66,7 +67,7 @@ def stop_clipping(ax,marg=.02): # default is 2% increase
     ax.axis([l-marg*dx, r+marg*dx, b-marg*dy, t+marg*dy])
 
 
-# In[715]:
+# In[4]:
 
 # dqdt requires a list of the time derivatives for q, stored 
 # in order from present to the past
@@ -84,6 +85,8 @@ def forback(q,dt,dqdt,dx,dy,fcoriolis): #q = [u,v,h], dqdt = [dudta[0],dvdta[0],
     hn = q[2] + dt*dqdt[2]
     un = q[0] + dt*dqdt[0]
     vn = q[1] + dt*dqdt[1]
+    vn[0,:]=0.
+    vn[-1,:]=0.
     hun = p2u(hn) # calculate h on the u grid
     dhdtn = -divergence(un*hun,vn*hun,dx,dy)
     dudtn,dvdtn = pgf(hn,dx,dy) #pressure gradient force
@@ -91,15 +94,13 @@ def forback(q,dt,dqdt,dx,dy,fcoriolis): #q = [u,v,h], dqdt = [dudta[0],dvdta[0],
     dvdtn += advect3(vn,un,vn,dx,dy,'v')
     dudtn += fcoriolis*vn
     dvdtn += -fcoriolis*un
-    dvdtn[0,:]=0.
-    dvdtn[-1,:]=0.
     h = q[2] + dt*dhdtn
     u = q[0] + dt*dudtn
     v = q[1] + dt*dvdtn
-    return [u,v,h]            
+    return [u,v,h]        
 
 
-# In[771]:
+# In[5]:
 
 ##############################################90% SURE THIS IS CORRECT
 def p2u(p):
@@ -168,9 +169,10 @@ def advect3Old(q,u,v,dx,dy):
     
     return dqdt
 
-def advect3(q,u,v,dx,dy,periodic=False): 
+def advect3(q,u,v,dx,dy,periodic): 
 # 3rd-order upwind advection
 # q,u,v are co-located
+    
     sh = q.shape
     Q = np.zeros( (sh[0],sh[1]+4) )
     Q[:, 2:-2 ] = q
@@ -194,10 +196,12 @@ def advect3(q,u,v,dx,dy,periodic=False):
     dqmx[:,:] =  (2*Q[:,3:-1] + 3*Q[:,2:-2] - 6*Q[:,1:-3] + Q[:,:-4])/6. 
     dqpx[:,:] = -(2*Q[:,1:-3] + 3*Q[:,2:-2] - 6*Q[:,3:-1] + Q[:,4:] )/6.
 
+    dqmy[-1,:] = q[-1,:]-q[-2,:]  #1
     dqmy[1,:]  = q[1,:]-q[0,:]  #1
     dqmy[2:-1,:] = (2*q[3:,:]+3*q[2:-1,:]-6*q[1:-2,:]+q[:-3,:])/6. #3
+    dqpy[0,:] = q[1,:]-q[0,:]  #1
     dqpy[-2,:] = q[-1,:]-q[-2,:] #1
-    dqpy[1:-2,:] = -(2*q[0:-3,:]+3*q[1:-2,:]-6*q[2:-1,:]+q[3:,:])/6. #3
+    dqpy[1:-2,:] = -(2*q[:-3,:]+3*q[1:-2,:]-6*q[2:-1,:]+q[3:,:])/6. #3
 
 # use derivatives biased to the upwind side:
     dqdx=np.where(u>0.,dqmx,dqpx)/dx
@@ -208,7 +212,8 @@ def advect3(q,u,v,dx,dy,periodic=False):
     dqdt+=-v*dqdy
     
     return dqdt
-#####################################Corners are broken, but the periodicity works
+
+#####################################WORKS
 def pgfOld(p,dx,dy):
 # calculated pressure gradient force on the u-grid
 # note calculation on the boundaries assume pressure gradient force
@@ -242,31 +247,42 @@ def pgf(p,dx,dy):
     P[:,0] = p[:,-1]
     P[:,-1] = p[:,0]
     
+    #Nowhere in the dudt section does it handle dudt[0,1:-1] or dudt=[-1,1:-1] (Top and bot)
+    #Nowhere in the dvdt section does it handle dvdt[1:-1,0] or dudt=[1:-1,-1] (left and right)
+    #therefore no change in u along top and bottom boundary, so u is always 0 there
+    #Since the base u field is 0, dudt from this is = to f*u.
     dpx = (P[:,1:]-P[:,:-1])/dx 
     dudt[1:-1,1:-1] = -.5*(dpx[1:,:] + dpx[:-1,:])   
     dudt[1:-1,-1] = -.5*(dpx[1:,-1] + dpx[:-1,1])
     dudt[1:-1,0] = dudt[1:-1,-1]
-    dudt[1,1] = -.5*(dpx[1,1] + dpx[2,1])
-    dudt[1,-2] = dudt[-2,1] = dudt[-2,-2] = dudt[1,1]
+    dudt[0,1:-1] =  -dpx[0,:]
+    dudt[-1,1:-1] = -dpx[-1,:]
+    dudt[0,0] = -.5*(dpx[0,0] + dpx[0,1])
+    dudt[0,-1] = dudt[0,0]
+    dudt[-1,0] = -.5*(dpx[-1,0] + dpx[-1,1])
+    dudt[-1,-1] = dudt[-1,0]
     
     dpy =  (P[1:,:]-P[:-1,:])/dy 
     dvdt[1:-1,1:-1] = -.5*(dpy[:,1:] + dpy[:,:-1])    
-    dvdt[-1,1:-1] = -dpy[-1,1:] /dy
-    dvdt[0,1:-1] = -dpy[0,1:] /dy
-    dvdt[1,1] = -.5*(dpy[1,1] + dpy[1,2])
-    dvdt[1,-2] = dvdt[-2,1] = dvdt[-2,-2] = dvdt[1,1]
+    dvdt[1:-1,-1] = -.5*(dpy[:,-1] + dpy[:,1])
+    dvdt[1:-1,0] = dvdt[1:-1,-1]
+    dvdt[0,0] = -dpy[0,0]
+    dvdt[0,-1] = dvdt[0,0]
+    dvdt[-1,0] = -dpy[-1,0]
+    dvdt[-1,-1] = dvdt[-1,0]
     
     return dudt[:,1:-1],dvdt[:,1:-1] #[1:-1,1:-1]
 
 
-# In[772]:
+# In[6]:
 
 # make the grid
-Nx = 101 # number of x grid points for u
+Nx = 401 # number of x grid points for u
 Ny = 101
-xmax = 1. # 0 <= x <= xmax
+xmax = 4. # 0 <= x <= xmax
 ymax = 1.
 dx = xmax/(Nx-1.) # grid width
+print(dx)
 dy = ymax/(Ny-1.)
 x1u = np.linspace(0,xmax,Nx)
 y1u = np.linspace(0,ymax,Ny)
@@ -277,19 +293,19 @@ xu,yu = np.meshgrid(x1u,y1u) # x and y locations on the u-grid
 xp,yp = np.meshgrid(x1p,y1p) # x and y locations on the p-grid
 
 
-# In[773]:
+# In[7]:
 
 print(xu.shape)
 print(xu)
 
 
-# In[774]:
+# In[8]:
 
 print(xp.shape)
 print(xp)
 
 
-# In[775]:
+# In[9]:
 
 print(yu.shape)
 print(yu)
@@ -297,46 +313,75 @@ print(yu)
 
 # Note the convention of meshgrid and matplotlib:  The **first** index controls the variation of $y$, the **second** index controls the variation of $x$. That protocol will also be true for all of our 2-D fields. This may be confusing because when normally write $h(x,y)$ we might expect in a python array `h[j,i]` that `i` controls the y-coordinate, but in fact `i` controls the x-coordinate.
 
-# In[776]:
+# In[10]:
 
 print("x:" ,xu[1,1], xu[1,2])
 print("y:" ,yu[1,1], yu[1,2])
 
 
-# In[777]:
+# In[11]:
 
 def yhat(y,yc,w):
     return (y-yc)/w
 
 
-# In[778]:
+# In[12]:
 
-beta = 10.
+#SCALES
+t_scale = 0.5 #days
+L_scale = 12.0*(10**6) #m
+g = 10. #ms-1
+H_scale = 3000. #m
+c_scale = math.sqrt(g*H_scale) #ms-1
+#DIMENSIONAL
+beta = 2.0*(10**(-11)) #s-1 m-1
+uo = 80. #ms-1
+a = 6.0*(10**6) #m
+w = a/4.0 #m
+yc = a #m
+xc = 4.*a #m
+ho = 3000.0 #m
+hm = 120.0 #m
+wx = 1.5*(10**6) #m
+wy = 2.0*(10**6) #m
+tstop = 20 #days
+#DIMENSIONLESS
+beta = beta / (c_scale/(L_scale**2))
 # initialize u, v, h
-xc = .5*xmax # center of initial 
-yc = .5*ymax # center of iniital 
-w = .2 #half width of the jet
-uo = .2 #max verlocity of jet
-ho = 1 #minimum height
+yc = yc / L_scale # center of jet
+xc = xc / L_scale
+xpc = xc*(Nx-1) #coordinate center of perturbation
+ypc = (Ny-1)*yc #coordinate center of perturbation
+w = w / L_scale #half width of the jet
+wx = wx / L_scale #scaling width of perturbation
+wy = wy / L_scale #scaling width of perturbation
+uo = uo / c_scale #max velocity of jet
+ho = ho / H_scale #minimum shallow water height
+hm = hm / H_scale #perturbation maximum height
+tstop = tstop / t_scale
 pshape = yp.shape
 ushape = yu.shape
+ui = np.zeros(ushape) #u initial
+hi = np.zeros(pshape) #h initial
+hip = np.zeros(pshape) #h initial perturbed
 
 uyhat = yhat(yu,yc,w)
 pyhat = yhat(yp,yc,w)
 
-#initial v
-vi = 0.*xu 
 
-#initial u
+#initial v
+vi = 0.0*yu 
+
+#initial u - Geosrophically Balanced Jet
 for ycor in range(ushape[0]):
     for xcor in range(ushape[1]):
         uyv = uyhat[ycor,xcor]
         if uyv >= -1 and uyv <= 1:
             ui[ycor,xcor] = uo*(1-3*uyv**2 + 3*uyv**4 - uyv**6)
         else:
-            ui[ycor,xcor] = 0
+            ui[ycor,xcor] = 0.0
         
-#initial h
+#initial h  - Geosrophically Balanced Jet
 for ycor in range(pshape[0]):
     for xcor in range(pshape[1]):
         pyv = pyhat[ycor,xcor]
@@ -346,30 +391,80 @@ for ycor in range(pshape[0]):
             hi[ycor,xcor] = ho - (w*beta*uo)*(yc*((16/35)+pyv-pyv**3+(3/5)*pyv**5-(1/7)*pyv**7)+w*((-1/8)+(1/2)*pyv**2-(3/4)*pyv**4+(1/2)*pyv**6-(1/8)*pyv**8))
         else:
             hi[ycor,xcor] = ho - (32/35)*(w*beta*uo*yc)
+            
+#initial h - Perturbation
+testmode = 'P' #set A for analytical, anything else to perturb it
+if testmode == 'A':
+    hip = hi
+else:
+    for ycor in range(pshape[0]):
+        for xcor in range(pshape[1]):
+            pyv = pyhat[ycor,xcor]
+            hip[ycor,xcor] = hi[ycor,xcor] + hm*(math.cos(math.pi*0.5*pyv)**2)*(math.exp(-((xcor/(Ny-1)-xc)/wx)**2))*(math.exp(-((ycor/(Ny-1)-yc)/wy)**2))
+
+print(hip.shape,ui.shape)
+print(xc,yc)
 
 
-# In[779]:
+# In[13]:
 
-quicku,simpleu = plt.subplots(figsize=(6,6))
+##SET SCHEME TO USE FOR A NEW RUN
+
+aborder = 10 # Adams-Bashforth order: 1, 2 or 3 [Set to 10 for Forwards-Backwards]
+varStep = True
+highres = False
+fnamestr = "FB_Var4_CFL0p1"
+
+
+
+# In[14]:
+
+quicku,simpleu = plt.subplots(figsize=(24,6))
 CHu = simpleu.contour(xu,yu,ui) #must assign a variable name to the contour plot
 plt.clabel(CHu, fontsize=9, inline=1)
-quickh,simpleh = plt.subplots(figsize=(6,6))
-CHh = simpleh.contour(xp,yp,hi) #must assign a variable name to the contour plot
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title('u initialisation')
+plt.savefig('initialu'+fnamestr+'.png')
+quickh,simpleh = plt.subplots(figsize=(24,6))
+CHh = simpleh.contour(xp,yp,hip,20) #must assign a variable name to the contour plot
 plt.clabel(CHh, fontsize=9, inline=1)
-quickb,simpleb1 = plt.subplots(figsize=(8,8))
-simpleb1.plot(ui[:,2],yu[:,2],'r-')
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title('h initialisation')
+plt.savefig('initialh'+fnamestr+'.png')
+quickb,simpleb1 = plt.subplots(figsize=(24,6))
+simpleb1.plot(ui[:,200]/uo,yu[:,200],'r-')
+simpleb1.set_xlabel('u',color='r')
+simpleb1.set_ylabel('y')
 simpleb2 = simpleb1.twiny()
-simpleb2.plot(hi[:,2],yp[:,2],'b-');
+simpleb2.plot(hip[:,200]/ho,yp[:,200],'b-')
+simpleb2.set_xlabel('h',color='b');
+plt.savefig('initialuh'+fnamestr+'.png')
 
-#plt.savefig('contours.png')
 
 
-# In[780]:
+# In[15]:
+
+quick2,simpleb3 = plt.subplots(figsize=(6,6))
+simpleb3.plot(ui[:,200]/uo,yu[:,200],'r-')
+simpleb3.set_xlabel('$u/u_0$',color='r')
+simpleb3.set_ylabel('$y$',rotation=360)
+simpleb4 = simpleb3.twiny()
+simpleb4.plot(hip[:,200]/ho,yp[:,200],'b-')
+simpleb4.set_xlabel('$h/h_0$',color='b')
+simpleb3.set_xlim(-0.1,1.1)
+simpleb4.set_xlim(-0.1,1.1)
+plt.tight_layout()
+plt.savefig('initialuhSquare'+fnamestr+'.png')
+
+
+# In[17]:
 
 # needed for contour plots of h in the animation:
-lowc = .75 #lowest contour
-hic = 1.25 #highest contour
-dc = .02  #contour increment
+lowc = -0.0001 #*(L_scale/c_scale) #lowest contour
+hic = -lowc #highest contour
+dc = 0.00001 #*(L_scale/c_scale)  #contour increment
 mylevs = [] #store contours
 lev = lowc
 while lev < hic + 0.1*dc:
@@ -377,70 +472,97 @@ while lev < hic + 0.1*dc:
     lev += dc
     
 #for arrow plots:
-vd = 2 # vector skip (vd=1 plots all arrows)
+vd = 0 # vector skip (vd=1 plots all arrows)
 speedmax = 0.05 # anticipated maximum speed
 
 
-# In[781]:
+# In[363]:
 
 #fcoriolis = 1
 fcoriolis = beta*yu[:,:]
-cphase = 1.
-u_est = 0.6
-dtlim = 0.2 # fraction of a grid space a wave is allowed to travel in one time unit
-dt = (dtlim *dx)/max(cphase,u_est)
+speedmax = 1.
+cfl = .1 #Anything over .34 blows up, .34 is pushing the limit of stability - determined experimentally when speedmax=1
+dt = cfl*dx/speedmax
+#cphase = 1.
+#u_est = .6
+#dtlim = .3 # fraction of a grid space a wave is allowed to travel in one time unit CHANGE THIS TO CHANGE dt - "Courant Number"
+#dt = (dtlim *dx)/max(cphase,u_est,max(ui[:,200]))
 #dt = dtlim *dx # because wave speed is 1
 
-fdt_crit = 0.5 #determined by experimentation, crit value when dtlim = 0.2
+#courant = (max(cphase,u_est,max(ui[:,200]))*dt)/dx + (max(cphase,u_est,max(ui[:,200]))*dt)/dy
+#print(courant)
 
-dt = min(fdt_crit/beta,dt) #force fdt <= fdt_crit 
+#fdt_crit = 0.5 #determined by experimentation, crit value when dtlim = 0.2
 
-tstop = 500 # stop when t>tstop
-dplot = 10. # time increment between plots
+#dt = min(fdt_crit/beta,dt) #force fdt <= fdt_crit 
+
+dplot =  .1 # time increment between plots
 
 #Variable Stepping
-nsteps = tstop / dt
-mult = 2 #lambda^nsteps
+nsteps = int(tstop / dt)+1
+mult = 4 #lambda^nsteps
 c = mult**(1/nsteps)
 dti = tstop*((c-1)/(mult-1))
+maxdt = dti*c**(nsteps-1)
 
-aborder = 3 # Adams-Bashforth order: 1, 2 or 3 [Set to 10 for Forwards-Backwards
-varStep = True
+if aborder == 10:
+    maxCFL=0.51
+elif aborder == 3:
+    maxCFL=0.34
+if speedmax*dt/dx <= maxCFL: print("CFL Test Passed For Constant")
+else: print("CFL Test FAILED For Constant")
+if speedmax*dti/dx <= maxCFL: print("CFL Test Passed For Initial Variable")
+else: print("CFL Test FAILED For Initial Variable")
+if speedmax*maxdt/dx <= maxCFL: print("CFL Test Passed For Final Variable")
+else: print("CFL Test FAILED For Final Variable")
+
 if aborder != 10:
     varStep = False
-expt = '%d,%3.2f,%5.2f,%d' % (aborder, dtlim, beta, Ny)
+if aborder == 3 and highres:
+    expt = '%d,%.3f,%d,%d,%d,%d,%.6f,%.3f' % (aborder, cfl, beta, Ny, Nx, nsteps, dt, dt*t_scale*24*60*60) + 's ,' +str(varStep)
+elif aborder == 3 and not highres:
+    expt = '%d,%.3f,%d,%d,%d,%d,%.5f,%.3f' % (aborder, cfl, beta, Ny, Nx, nsteps, dt, dt*t_scale*24*60*60) + 's ,' +str(varStep)
+elif aborder == 10 and varStep:
+    expt = '%d,%.3f,%d,%d,%d,%d,%.5f,%.3f' % (aborder, cfl, beta, Ny, Nx, nsteps, dti, dti*t_scale*24*60*60) + 's ,' +str(varStep)
+elif aborder == 10 and not varStep:
+    expt = '%d,%.3f,%d,%d,%d,%d,%.5f,%.3f' % (aborder, cfl, beta, Ny, Nx, nsteps, dt, dt*t_scale*24*60*60) + 's ,' +str(varStep)
 print(expt)
 print(beta,dt,dt*beta)
 
 
-# In[782]:
+# In[364]:
 
-quick,simple3 = plt.subplots(figsize=(6,6))
+quick,simple3 = plt.subplots(figsize=(24,6))
 CH3 = simple3.contour(xu,yu,fcoriolis) #must assign a variable name to the contour plot
 plt.clabel(CH3, fontsize=9, inline=1);
 
 
-# In[783]:
+# In[365]:
 
-def plot(xp,yp,h,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt):
+def plot(xp,yp,h,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt,mycmap,fnamestr):
     ax2.clear()
-    CF=ax2.contourf(xp,yp,h,mylevs,zorder=1)
-    ax2.axis('off')
-    Q=ax2.quiver(xu[::vd,::vd],yu[::vd,::vd],u[::vd,::vd]*ymax/xmax,v[::vd,::vd],
-        scale=speedmax*Nx/vd,units='width',zorder=3) #normally ymax/xmax =1 
-    stop_clipping(ax2)
-    ax2.quiverkey(Q,-.1,.95,speedmax,'{0:7.3f}'.format(speedmax),zorder=4)
-    ax2.text(.5,-.05,expt,fontsize=22)
-    ax2.text(.05,-.05,'t={0:5.3f}'.format(t),fontsize=22) 
+    CF=ax2.contourf(xp,yp,h,mylevs,zorder=1,extend="both",cmap=mycmap)
+    ax2.set_yticklabels([])
+    ax2.set_xticklabels([])
+    ax2.xaxis.set_ticks_position('none') 
+    ax2.yaxis.set_ticks_position('none') 
+    if vd != 0:
+        Q=ax2.quiver(xu[::vd,::vd],yu[::vd,::vd],u[::vd,::vd]*ymax/xmax,v[::vd,::vd],scale=speedmax*Nx/vd,units='width',zorder=3) #normally ymax/xmax =1 
+        stop_clipping(ax2)
+        ax2.quiverkey(Q,-.055,.95,speedmax,'{0:7.3f}'.format(speedmax),zorder=4)
+    ax2.text(.3,-.05,expt,fontsize=16)
+    ax2.text(.05,-.05,'t={0:5.3f}'.format(t),fontsize=16) 
     if t<dt/2.: 
         mycbar = myfig.colorbar(CF,ax=ax3,fraction=0.4)
         mycbar.ax.yaxis.set_ticks_position('left')
         sooner = mycbar.ax.yaxis.get_ticklabels()
+        mycbar.set_label('Relative Vorticity / $s^{-1}$')
         for boomer in sooner:
             boomer.set_fontsize(12)
     clear_output(wait=True)
     display(myfig) 
-    myfig.savefig('AAAA_'+str(int(t))+'_time.png')
+    timestr = '%.1f' % t
+    myfig.savefig(fnamestr+'_'+timestr+'_time.png')
     #Time.sleep(2.)
 
 
@@ -450,13 +572,13 @@ def plot(xp,yp,h,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt):
 # 
 # * The simulation is a bit slow to compute. One reason is that the time step is limited by the gravity waves, which move with speed of 1. 
 
-# In[784]:
+# In[366]:
 
 t=0
 tplot=-100. # next time to make a plot
 u=ui.copy()
 v=vi.copy()
-h=hi.copy()
+h=hip.copy()
 
 dudt = 0.*u
 dvdt = 0.*v
@@ -470,28 +592,39 @@ dudta = [None]*3
 dvdta = [None]*3
 
 nstep = 0
-myfig = plt.figure(figsize=(8,8),facecolor='lightgrey')
-ax2 = myfig.add_axes([0.1, 0.1, 0.8, .8*ymax/xmax],frameon=False) # contour axes
-ax3 = myfig.add_axes([0.0, 0.1, 0.08, .8]) # for colorbar
+myfig = plt.figure(figsize=(24,6),facecolor='lightgrey')
+ax2 = myfig.add_axes([0.1, 0.1, 0.8, .8]) # contour axes
+ax3 = myfig.add_axes([0.01, 0.1, 0.08, .8]) # for colorbar
 ax3.axis('off')
-ax2.axis('off')
+cmap = LinearSegmentedColormap.from_list('mycmap',['purple','indigo','b','c','w','w','yellow','orange','r','maroon'])
+cmap.set_under('purple')
+cmap.set_over('maroon')
 plt.setp( ax2.get_xticklabels(), visible=False);
 
 nxc=Nx//2
 nyc=Ny//2
-#hstore = [ ]
-hstore = [h[nyc,nxc]]
-zetastore = [ vorticity(u,v,dx,dy)[50,50] ]
-tstore = [ 0 ] # for storing the corresponding time of the value
+nrgstore,hstore,vortstore,tstore,potvortstore,ensstore = np.zeros(nsteps+2),np.zeros(nsteps+2),np.zeros(nsteps+2),np.zeros(nsteps+2),np.zeros(nsteps+2),np.zeros(nsteps+2)
+hstore[0] = np.mean(h) #h[nyc,nxc]
+vort = vorticity(u,v,dx,dy)
+vortstore[0] = np.mean(vort) #vorticity(u,v,dx,dy)[nyc,nxc]
+hu = p2u(h)
+vortu = p2u(vort)
+potvort = (fcoriolis+vortu)/hu
+potvortstore[0] = np.mean(potvort)
+ensstore[0] = 0.5*np.mean(potvort**2)
+tstore[0] = 0 # for storing the corresponding time of the value
 
-if aborder == 10:
+if varStep == True:
     dt = dti
 
-while t < tstop + dt/2.:
+vort = vorticity(u,v,dx,dy)
+vortplot = vort/(L_scale/c_scale) 
+
+while t < tstop + dt/2. or nstep == nsteps:
     nstep+=1
     abnow=min(nstep,aborder)
-    if t >= tplot + dplot: #plot
-        plot(xp,yp,h,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt)
+    if t >= tplot + dplot or nstep == nsteps: #plot
+        plot(xp,yp,vortplot,mylevs,xu,vd,yu,u,ymax,xmax,v,speedmax,expt,cmap,fnamestr)
         tplot = t
     
     hu = p2u(h) # calculate h on the u grid
@@ -499,15 +632,16 @@ while t < tstop + dt/2.:
     dhdt = -divergence(u*hu,v*hu,dx,dy)
     
     dudt,dvdt = pgf(h,dx,dy) #pressure gradient force
+    #prevPdudt,prevPdvdt=dudt.copy(),dvdt.copy()
+    
     
     dudt += advect3(u,u,v,dx,dy,'u') # no option for other than 3rd order 
     dvdt += advect3(v,u,v,dx,dy,'v') 
+    #prevAdudt,prevAdvdt=dudt.copy(),dvdt.copy()
     
 #Coriolis force here:
     dudt += fcoriolis*v
-    dvdt += -fcoriolis*u
-    dvdt[0,:]=0.
-    dvdt[-1,:]=0.
+    dvdt[1:-1,:] += -fcoriolis[1:-1,:]*u[1:-1,:]
 #end Coriolis force
     
     dudta = [dudt.copy()] + dudta[:-1]
@@ -524,92 +658,279 @@ while t < tstop + dt/2.:
         v += dt*ab_blend(dvdta,abnow)
         h += dt*ab_blend(dhdta,abnow)
     
+    #v[0,:]=0.
+    #v[-1,:]=0.
+    
 #NRG CONS
-#    h2 = h**2
-#    u2 = u**2
-#    v2 = v**2
-#    uh = (u2[:-1,:-1]+u2[1:,1:])/2
-#    vh = (v2[:-1,:-1]+v2[1:,1:])/2
-#    nrg = (h*uh/2)+(h*vh/2)+(h2/2)
-#    hstore.append(nrg.mean())
+    h2 = h**2
+    u2 = u**2
+    v2 = v**2
+    uh = (u2[:-1,:-1]+u2[1:,1:])/2
+    vh = (v2[:-1,:-1]+v2[1:,1:])/2
+    nrg = (h*uh/2)+(h*vh/2)+(h2/2)
+    nrgstore[nstep] = np.mean(nrg)
     
 #END NRG CONS
 
 
-#Monitor vort @ centre
-    zeta = vorticity(u,v,dx,dy)
-    buns = (zeta[nxc,nyc]+fcoriolis[nxc,nyc])/h[nxc,nyc]
-    zetastore.append(buns)
+#Monitor relative and potential vort
+    vort = vorticity(u,v,dx,dy)
+    vortplot = vort/(L_scale/c_scale) 
+    vortstore[nstep] = np.mean(vort)
+    vortu = p2u(vort)
+    potvort = (fcoriolis+vortu)/hu
+    potvortstore[nstep] = np.mean(potvort)
+    ensstore[nstep] = 0.5*np.mean(potvort**2)
 #end monitoring
     
     t = t + dt
-    hstore.append(h[nyc,nxc])
-    #hstore.append( h.mean() )
-    tstore.append( t )
+    hstore[nstep] = np.mean(h)
+    tstore[nstep] = t
     if varStep == True:
         dt = dt*c
+        
+    v[0,:] = 0.
+    v[-1,:] = 0.
     
     assert u.max()<2.e10, 'kaboom!'
+    
+#print('hu:',hu[0,:],hu[-1,:])
+#print('dhdt:',dhdt[0,:],dhdt[-1,:])
+#print('PGF dudt:',prevPdudt[0,:],prevPdudt[-1,:])
+#print('PGF dvdt:',prevPdvdt[0,:],prevPdvdt[-1,:])
+#print('ADV dudt:',prevAdudt[0,:]-prevPdudt[0,:],prevAdudt[-1,:]-prevPdudt[-1,:])
+#print('ADV dvdt:',prevAdvdt[0,:]-prevPdvdt[0,:],prevAdvdt[-1,:]-prevPdvdt[-1,:])
+#print('COR dudt:',dudt[0,:]-prevAdudt[0,:],dudt[-1,:]-prevAdudt[-1,:])
+#print('COR dvdt:',dvdt[0,:]-prevAdvdt[0,:],dvdt[-1,:]-prevAdvdt[-1,:])
+#print('u:',u[0,:],u[-1,:])
+#print('v:',v[0,:],v[-1,:])
+#print('h:',h[0,:],h[-1,:])
 
-highres = False
-if highres == True:
-    np.save('HR_u',u)
-    np.save('HR_v',v)
-    np.save('HR_h',h)
-    
-    hu = p2u(h) # calculate h on the u grid
-    dhdt = -divergence(u*hu,v*hu,dx,dy)
-    dudt,dvdt = pgf(h,dx,dy) #pressure gradient force
-    dudt += advect3(u,u,v,dx,dy,'u') # no option for other than 3rd order 
-    dvdt += advect3(v,u,v,dx,dy,'v') 
-    dudt += fcoriolis*v
-    dvdt += -fcoriolis*u
-    np.save('HR_hu',hu)
-    np.save('HR_dhdt',dhdt)
-    np.save('HR_dudt',dudt)
-    np.save('HR_dvdt',dvdt)
-    
+np.save(fnamestr+'_u',u)
+np.save(fnamestr+'_v',v)
+np.save(fnamestr+'_h',h)
+np.save(fnamestr+'_hu',hu)
+np.save(fnamestr+'_dhdt',dhdt)
+np.save(fnamestr+'_dudt',dudt)
+np.save(fnamestr+'_dvdt',dvdt)
+np.save(fnamestr+'_vort',vort)
+np.save(fnamestr+'_potvort',potvort)
+np.save(fnamestr+'_nrg',nrg)
+np.save(fnamestr+'_vortstore',np.array(vortstore))
+np.save(fnamestr+'_potvortstore',np.array(potvortstore))
+np.save(fnamestr+'_ensstore',np.array(ensstore))
+np.save(fnamestr+'_hstore',np.array(hstore))
+np.save(fnamestr+'_tstore',np.array(tstore))
+np.save(fnamestr+'_nrgstore',np.array(nrgstore))
     
 plt.close() 
 
 
-# In[736]:
+# In[367]:
 
 print(nstep)
 
 
-# In[737]:
+# In[368]:
 
-q3,zetaplot = plt.subplots(figsize=(8,8))
-zetaplot.plot(tstore,zetastore)
-#zetaplot.set_ylim((8,9))
-#zetaplot.set_xlim((0,1.75))
-zetaplot.set_xlabel('t')
-zetaplot.set_ylabel('(zeta+f)/h')
-zetaplot.grid()
-#q3.savefig('zetacenterstudy.png')
+quick2,simpleb3 = plt.subplots(figsize=(6,6))
+simpleb3.plot(u[:,200]/uo,yu[:,200],'r-')
+simpleb3.set_xlabel('$u/u_0$',color='r')
+simpleb3.set_ylabel('$y$',rotation=360)
+simpleb4 = simpleb3.twiny()
+simpleb4.plot(h[:,200]/ho,yp[:,200],'b-')
+simpleb4.set_xlabel('$h/h_0$',color='b')
+simpleb3.set_xlim(-0.1,1.1)
+simpleb4.set_xlim(-0.1,1.1)
+plt.tight_layout()
+plt.savefig('finaluhSquare'+fnamestr+'.png')
+
+quick3,simpleb5 = plt.subplots(figsize=(6,6))
+simpleb5.plot((ui[:,200]/uo)-(u[:,200]/uo),yu[:,200],'r-')
+simpleb5.set_xlabel('$u_i/u_0 - u/u_0$',color='r')
+simpleb5.set_ylabel('$y$',rotation=360)
+simpleb6 = simpleb5.twiny()
+simpleb6.plot((hip[:,200]/ho)-(h[:,200]/ho),yp[:,200],'b-')
+simpleb6.set_xlabel('$h_i/h_0 - h/h_0$',color='b')
+simpleb5.set_xlim(-0.11,0.11)
+simpleb6.set_xlim(-0.11,0.11)
+plt.tight_layout()
+plt.savefig('finaluhSquareComp'+fnamestr+'.png')
 
 
-# In[738]:
+# In[9]:
 
-myfig, trace = plt.subplots(figsize=(8,6))
-trace.plot(tstore,hstore)
-#trace.set_ylim((.8,1.2))
+def rmse(act,forc):
+    return np.sqrt(np.mean((forc - act)**2))
+def rmse2(act,forc):
+    return np.sqrt(np.mean((forc - act)**2))/np.sqrt(np.mean(act**2))
+def l2norm(act,forc):
+    return np.linalg.norm(forc-act)
+#L2 error norm, divide by rms of just the act
+
+
+# In[10]:
+
+import csv
+with open('L2_VALUES.csv','a') as file:
+        o = csv.writer(file,lineterminator='\n')
+        o.writerow(['Run Name','u','v','h','hu','dhdt','dudt','dvdt','Rel Vort','Energy','Pot Vort'])
+things = ['FB_Cons_CFL0p1','FB_Cons_CFL0p2','FB_Cons_CFL0p3','FB_Var2_CFL0p3','FB_Var3_CFL0p3','FB_Var4_CFL0p3','FB_Var2_CFL0p2','FB_Var3_CFL0p2','FB_Var4_CFL0p2','FB_Var2_CFL0p1','FB_Var3_CFL0p1','FB_Var4_CFL0p1']
+for thing in things:
+    rmse_u = l2norm(np.load('HR_u.npy'),np.load(thing+'_u.npy'))
+    rmse_v = l2norm(np.load('HR_v.npy'),np.load(thing+'_v.npy'))
+    rmse_h = l2norm(np.load('HR_h.npy'),np.load(thing+'_h.npy'))
+    rmse_hu = l2norm(np.load('HR_hu.npy'),np.load(thing+'_hu.npy'))
+    rmse_dhdt = l2norm(np.load('HR_dhdt.npy'),np.load(thing+'_dhdt.npy'))
+    rmse_dudt = l2norm(np.load('HR_dudt.npy'),np.load(thing+'_dudt.npy'))
+    rmse_dvdt = l2norm(np.load('HR_dvdt.npy'),np.load(thing+'_dvdt.npy'))
+    rmse_vort = l2norm(np.load('HR_vort.npy'),np.load(thing+'_vort.npy'))
+    rmse_nrg = l2norm(np.load('HR_nrg.npy'),np.load(thing+'_nrg.npy'))
+    rmse_potvort = l2norm(np.load('HR_potvort.npy'),np.load(thing+'_potvort.npy'))
+    with open('L2_VALUES.csv','a') as file:
+        o = csv.writer(file,lineterminator='\n')
+        o.writerow([thing,rmse_u,rmse_v,rmse_h,rmse_hu,rmse_dhdt,rmse_dudt,rmse_dvdt,rmse_vort,rmse_nrg,rmse_potvort])
+
+
+# In[370]:
+
+if not highres:
+    rmse_u = rmse(np.load('HR_u.npy'),u)
+    rmse_v = rmse(np.load('HR_v.npy'),v)
+    rmse_h = rmse(np.load('HR_h.npy'),h)
+    rmse_hu = rmse(np.load('HR_hu.npy'),hu)
+    rmse_dhdt = rmse(np.load('HR_dhdt.npy'),dhdt)
+    rmse_dudt = rmse(np.load('HR_dudt.npy'),dudt)
+    rmse_dvdt = rmse(np.load('HR_dvdt.npy'),dvdt)
+    rmse_vort = rmse(np.load('HR_vort.npy'),vort)
+    rmse_nrg = rmse(np.load('HR_nrg.npy'),nrg)
+    rmse_potvort = rmse(np.load('HR_potvort.npy'),potvort)
+
+
+# In[371]:
+
+import csv
+with open('RMSE_VALUES.csv','a') as file:
+    o = csv.writer(file,lineterminator='\n')
+    if not highres:
+        o.writerow([fnamestr,rmse_u,rmse_v,rmse_h,rmse_hu,rmse_dhdt,rmse_dudt,rmse_dvdt,rmse_vort,rmse_nrg,rmse_potvort])
+    if highres:
+        o.writerow(['Run Name','u','v','h','hu','dhdt','dudt','dvdt','Rel Vort','Energy','Pot Vort'])
+
+
+# In[20]:
+
+vortstore = np.load('Validation_vortstore.npy')
+tstore = np.load('Validation_tstore.npy')
+
+q3,vortplot = plt.subplots(figsize=(12,6))
+vortplot.plot(tstore*t_scale,(vortstore*(c_scale/(L_scale*H_scale))-(vortstore[0]*(c_scale/(L_scale*H_scale))))/vortstore[0]*(c_scale/(L_scale*H_scale)))
+#vortplot.set_ylim((8,9))
+vortplot.set_title('Normalised Mean Relative Vorticity Change')
+vortplot.set_xlim((0,tstop*t_scale))
+vortplot.set_xlabel('Time / Days')
+vortplot.set_ylabel('Mean Relative \n Vorticity Conservation')
+vortplot.grid()
+q3.tight_layout()
+q3.savefig('meanvorttime'+fnamestr+'.png')
+
+
+# In[373]:
+
+q4,potvortplot = plt.subplots(figsize=(12,6))
+potvortplot.plot(tstore*t_scale,((potvortstore/(L_scale*c_scale))-(potvortstore[0]/(L_scale*c_scale)))/(potvortstore[0]/(L_scale*c_scale)))
+#potvortplot.set_ylim((8,9))
+potvortplot.set_title('Normalised Potential Vorticity Change')
+potvortplot.set_xlim((0,tstop*t_scale))
+potvortplot.set_xlabel('Time / Days')
+potvortplot.set_ylabel('Potential Vorticity Conservation')
+potvortplot.grid()
+q4.savefig('meanpotvorttime'+fnamestr+'.png')
+
+
+# In[18]:
+
+myfig, trace = plt.subplots(figsize=(12,6))
+trace.plot(tstore[1:]*t_scale,(nrgstore[1:]-nrgstore[1])/nrgstore[1])
+trace.set_title('Normalised Energy Change')
+trace.set_xlabel('t / Days')
+trace.set_ylabel('Energy Conservation')
+trace.set_xlim(0,tstop*t_scale)
 trace.grid()
-print(min(hstore),max(hstore))
+print(min(nrgstore[1:]),max(nrgstore[1:]))
+myfig.tight_layout()
+myfig.savefig('EnergyCons'+fnamestr+'.png')
 
 
-# In[739]:
+# In[375]:
 
-vort=vorticity(u,v,dx,dy) # fix the vorticity function!!
+vort=vorticity(u,v,dx,dy)/(L_scale/c_scale) * 100000 # fix the vorticity function!!
 quick,simple = plt.subplots(figsize=(6,6))
 # it is possible to use both filled and line contour plots together
-simple.contourf(vort) # fiiled contours
+#simple.contourf(vort) # fiiled contours
 CV = simple.contour(vort) # line contours
 plt.clabel(CV, fontsize=9, inline=1) #labels on line contours
-simple.set_title('vertical vorticity $\zeta$') #fix title
-simple.axis('off')             
-#quick.savefig("vertvortfix.png")
+simple.set_title('Relative Vorticity / $ 10^{-6} s^{-1} $') #fix title
+simple.set_yticklabels([])
+simple.set_xticklabels([])
+simple.xaxis.set_ticks_position('none') 
+simple.yaxis.set_ticks_position('none')             
+quick.savefig("vortline_"+fnamestr+".png")
+quick2,simple2 = plt.subplots(figsize=(6,6))
+# it is possible to use both filled and line contour plots together
+simple2.contourf(vort) # fiiled contours
+simple2.set_title('Relative Vorticity / $ 10^{-6} s^{-1} $') #fix title
+simple2.set_yticklabels([])
+simple2.set_xticklabels([])
+simple2.xaxis.set_ticks_position('none') 
+simple2.yaxis.set_ticks_position('none')           
+quick2.savefig("vertcolour_"+fnamestr+".png")
+
+
+# In[376]:
+
+vort=vorticity(u,v,dx,dy) # fix the vorticity function!!
+vortu = p2u(vort)
+hu = p2u(h)
+potvort = (((fcoriolis+vortu)/hu)/(L_scale*c_scale))*10**8
+quick,simple = plt.subplots(figsize=(6,6))
+# it is possible to use both filled and line contour plots together
+#simple.contourf(vort) # fiiled contours
+CV = simple.contour(potvort) # line contours
+plt.clabel(CV, fontsize=9, inline=1) #labels on line contours
+simple.set_title('Potential Vorticity / $ 10^{-8} sm^{-2} $') #fix title
+simple.set_yticklabels([])
+simple.set_xticklabels([])
+simple.xaxis.set_ticks_position('none') 
+simple.yaxis.set_ticks_position('none')             
+quick.savefig("potvortline_"+fnamestr+".png")
+quick2,simple2 = plt.subplots(figsize=(6,6))
+# it is possible to use both filled and line contour plots together
+simple2.contourf(potvort) # fiiled contours
+simple2.set_title('Potential Vorticity / $ 10^{-8} sm^{-2} $') #fix title
+simple2.set_yticklabels([])
+simple2.set_xticklabels([])
+simple2.xaxis.set_ticks_position('none') 
+simple2.yaxis.set_ticks_position('none')           
+quick2.savefig("potvortcolour_"+fnamestr+".png")
+
+
+# In[377]:
+
+q5, ensplot = plt.subplots(figsize=(12,6))
+ensplot.plot(tstore*t_scale,((ensstore/(c_scale**2))-(ensstore[0]/(c_scale**2)))/(ensstore[0]/(c_scale**2)))
+ensplot.set_title('Normalised Potential Enstrophy Change')
+ensplot.set_xlabel('t / Days')
+ensplot.set_ylabel('Potential Enstrophy Conservation')
+ensplot.set_xlim(0,tstop*t_scale)
+ensplot.grid()
+print(min(ensstore),max(ensstore))
+q5.savefig('EnstrophyCons'+fnamestr+'.png')
+
+
+# In[ ]:
+
+
 
 
 # ## Student tasks:
@@ -664,27 +985,27 @@ simple.axis('off')
 # 
 # Show the numerical (meaning python array) approximation of the above integral is conserved well in the model.
 # 
-# [0.52636925561494208, 0.52636925613538321, 0.52636925531129186, 0.52636925534560375, 0.52636925512701571, 0.52636925494445586, 0.52636925476358865, 0.52636925458204942, 0.52636925440026017, 0.52636925421805103, 0.52636925403530799, 0.52636925385190803, 0.52636925366771969, 0.52636925348260744, 0.52636925329643303, 0.52636925310905858, 0.52636925292034897, 0.52636925273017354, 0.52636925253840872, 0.52636925234494081, 0.52636925214966679, 0.52636925195249795, 0.52636925175336025, 0.5263692515521966, 0.52636925134896917, 0.52636925114365818, 0.52636925093626652, 0.52636925072681751, 0.52636925051535732, 0.52636925030195436, 0.5263692500867011, 0.52636924986971168, 0.52636924965112275, 0.52636924943109675, 0.52636924920981343, 0.52636924898747661, 0.5263692487643099, 0.52636924854055656, 0.52636924831647647, 0.52636924809234864, 0.52636924786846662, 0.52636924764513959, 0.52636924742268953, 0.52636924720144473, 0.52636924698175258, 0.52636924676396812, 0.52636924654843764, 0.52636924633554216, 0.5263692461256323, 0.52636924591909529, 0.52636924571628929, 0.52636924551759778, 0.52636924532338125, 0.52636924513401551, 0.52636924494986026, 0.52636924477126967, 0.52636924459860324, 0.52636924443219779, 0.52636924427239296, 0.52636924411951058, 0.52636924397386264, 0.52636924383575623, 0.52636924370548188, 0.52636924358330939, 0.52636924346949931, 0.52636924336429802, 0.52636924326794121, 0.52636924318064615, 0.5263692431025816, 0.52636924303394594, 0.52636924297490517, 0.52636924292556408, 0.52636924288606501, 0.52636924285651099, 0.52636924283694519, 0.52636924282746045, 0.52636924282806463, 0.52636924283876874, 0.52636924285958486, 0.52636924289044096, 0.5263692429313177, 0.52636924298210164, 0.5263692430427187, 0.52636924311302868, 0.52636924319288503, 0.52636924328213486, 0.52636924338056368, 0.52636924348799252, 0.52636924360415482, 0.52636924372883509, 0.52636924386173589, 0.52636924400258978, 0.52636924415107622, 0.52636924430688936, 0.52636924446967415, 0.52636924463910395, 0.52636924481478631, 0.5263692449963695, 0.52636924518345118, 0.52636924537563934, 0.52636924557252873, 0.52636924577370903, 0.52636924597875245, 0.52636924618723846, 0.52636924639873484, 0.52636924661280693, 0.52636924682902642, 0.52636924704696308, 0.52636924726619283, 0.52636924748627156, 0.52636924770677285, 0.52636924792727924, 0.52636924814738084, 0.52636924836667276, 0.52636924858475842, 0.52636924880121738, 0.52636924901568671, 0.5263692492277906, 0.526369249437177, 0.52636924964346665, 0.52636924984631961, 0.52636925004541468, 0.52636925024044134, 0.52636925043108185, 0.52636925061702911, 0.526369250798016, 0.5263692509737824, 0.52636925114406241, 0.52636925130860579, 0.52636925146719016, 0.52636925161960679, 0.52636925176565308, 0.52636925190511852, 0.52636925203784901, 0.52636925216367347, 0.52636925228244746, 0.52636925239401733, 0.52636925249826949, 0.52636925259509271, 0.52636925268438295, 0.52636925276604674, 0.52636925284001379, 0.52636925290621772, 0.5263692529646028, 0.52636925301512594, 0.5263692530577555, 0.52636925309247473, 0.52636925311926597, 0.52636925313813077, 0.52636925314908434, 0.52636925315213623, 0.52636925314731819, 0.52636925313467398, 0.52636925311423799, 0.52636925308608351, 0.52636925305028992, 0.52636925300691284, 0.52636925295603232, 0.52636925289773173, 0.52636925283209945, 0.52636925275922386, 0.52636925267920764, 0.52636925259215761, 0.52636925249817901, 0.52636925239738996, 0.52636925228990816, 0.5263692521758575, 0.52636925205536189, 0.5263692519285551, 0.52636925179556426, 0.52636925165652926, 0.52636925151158409, 0.52636925136086721, 0.52636925120451872, 0.52636925104267973, 0.52636925087548914, 0.52636925070308693, 0.52636925052561445, 0.5263692503432118, 0.52636925015601899, 0.52636924996417378, 0.52636924976781319, 0.52636924956707842, 0.5263692493621005, 0.52636924915301764, 0.52636924893996506, 0.526369248723074, 0.52636924850248201, 0.52636924827831777, 0.52636924805071705, 0.52636924781981076, 0.526369247585733, 0.52636924734861701, 0.52636924710859634, 0.52636924686580844, 0.52636924662038886, 0.52636924637247506, 0.52636924612220648, 0.52636924586972422, 0.52636924561517184, 0.52636924535869145, 0.52636924510043259, 0.52636924484054159, 0.52636924457917156, 0.52636924431647369, 0.5263692440526081, 0.52636924378772521, 0.52636924352199765, 0.52636924325559342, 0.52636924298868559, 0.5263692427214508, 0.52636924245406957, 0.52636924218672632, 0.52636924191960011, 0.52636924165287213, 0.52636924138670627, 0.52636924112128702, 0.52636924085678205, 0.52636924059336687, 0.52636924033120347, 0.52636924007046815, 0.52636923981130801, 0.52636923955390813, 0.52636923929841606, 0.52636923904494959, 0.5263692387936667, 0.52636923854465689, 0.52636923829808713, 0.52636923805406721, 0.52636923781272094, 0.52636923757415466, 0.52636923733846497, 0.52636923710574102, 0.5263692368760623, 0.5263692366494962, 0.52636923642610778, 0.52636923620594389, 0.52636923598904539, 0.52636923577543859, 0.52636923556514004, 0.52636923535815827, 0.52636923515449086, 0.52636923495412402, 0.52636923475703357, 0.52636923456318674, 0.52636923437254113, 0.52636923418504689, 0.52636923400064228, 0.52636923381926193, 0.52636923364082988, 0.52636923346526343, 0.52636923329247742, 0.52636923312237927, 0.52636923295487603, 0.52636923278987391, 0.52636923262727553, 0.52636923246698863, 0.52636923230892196, 0.52636923215298403, 0.5263692319990918, 0.52636923184716566, 0.52636923169713046, 0.5263692315489209, 0.52636923140247871, 0.52636923125775725, 0.52636923111468914, 0.5263692309732344, 0.52636923083333698, 0.52636923069497266, 0.52636923055810381, 0.52636923042271144, 0.52636923028878313, 0.52636923015627157, 0.52636923002517944, 0.52636922989545254, 0.52636922976700551, 0.52636922963977817, 0.52636922951390019, 0.52636922938934427, 0.52636922926619345, 0.52636922914450268, 0.52636922902432393, 0.52636922890574822, 0.52636922878887971, 0.52636922867378211, 0.52636922856059609, 0.52636922844942691, 0.52636922834039634, 0.52636922823367294, 0.52636922812934517, 0.52636922802763597, 0.52636922792865048, 0.52636922783261864, 0.52636922773967043, 0.52636922765005201, 0.52636922756390325, 0.52636922748149229, 0.52636922740295811, 0.52636922732857261, 0.5263692272585212, 0.52636922719303092, 0.52636922713233325, 0.52636922707662215, 0.52636922702615419, 0.52636922698110788, 0.52636922694172494, 0.52636922690821175, 0.52636922688074506, 0.52636922685955634, 0.52636922684484166, 0.52636922683684984, 0.52636922683567733, 0.52636922684146648, 0.52636922685432208, 0.52636922687433141, 0.52636922690156807, 0.52636922693607691, 0.52636922697794875, 0.52636922702716016, 0.52636922708367606, 0.52636922714748835, 0.52636922721851098, 0.52636922729660951, 0.52636922738167047, 0.52636922747352155, 0.52636922757193849, 0.5263692276767109, 0.52636922778758621, 0.52636922790425122, 0.52636922802638519, 0.5263692281536424, 0.52636922828562249, 0.52636922842191836, 0.52636922856210611, 0.52636922870570235, 0.52636922885223314, 0.52636922900118233, 0.52636922915201889, 0.52636922930429841, 0.52636922945739706, 0.52636922961072985, 0.52636922976374323, 0.52636922991583435, 0.52636923006643599, 0.52636923021499771, 0.52636923036100314, 0.52636923050379125, 0.52636923064276997, 0.52636923077734432, 0.52636923090691612, 0.52636923103091882, 0.52636923114876866, 0.5263692312599082, 0.52636923136380898, 0.52636923145993941, 0.5263692315477918, 0.52636923162689886, 0.52636923169678262, 0.526369231757019, 0.52636923180720263, 0.52636923184694373, 0.52636923187589413, 0.52636923189371698, 0.52636923190011131, 0.52636923189481399, 0.52636923187756823, 0.52636923184814255, 0.52636923180632411, 0.52636923175171757, 0.52636923168384775, 0.52636923160218796, 0.52636923150610926, 0.52636923139526304, 0.52636923126972124, 0.52636923112952161, 0.52636923097469523, 0.5263692308053245, 0.52636923062152641, 0.52636923042344441, 0.52636923021124482, 0.52636922998511482, 0.52636922974526201, 0.52636922949192089, 0.52636922922533513, 0.52636922894577287, 0.52636922865351476, 0.5263692283488659, 0.52636922803213193, 0.52636922770363781, 0.52636922736372704, 0.52636922701273836, 0.52636922665103048, 0.52636922627896932, 0.5263692258969157, 0.52636922550525422, 0.52636922510435125, 0.52636922469459813, 0.52636922427636545, 0.52636922385004781, 0.52636922341602044, 0.52636922297466993, 0.52636922252638119, 0.52636922207152292, 0.52636922161049138, 0.52636922114364126, 0.52636922067135761, 0.52636922019399912, 0.52636921971192629, 0.52636921922551949, 0.52636921873512443, 0.52636921824108152, 0.52636921774373757, 0.52636921724342645, 0.5263692167404741, 0.52636921623520971, 0.52636921572795936, 0.52636921521903801, 0.5263692147087573, 0.526369214197413, 0.5263692136853203, 0.52636921317278085, 0.52636921266009118, 0.52636921214754273, 0.52636921163541606, 0.52636921112400237, 0.52636921061357567, 0.52636921010441273, 0.52636920959678757, 0.52636920909096607, 0.52636920858721525, 0.5263692080857939, 0.52636920758696248, 0.52636920709097557, 0.52636920659809416, 0.52636920610856219, 0.52636920562263989, 0.5263692051405976, 0.52636920466269599, 0.52636920418910649, 0.5263692037200921, 0.52636920325587111, 0.52636920279663157, 0.52636920234250506, 0.52636920189363834, 0.52636920145032717, 0.5263692010127452, 0.52636920058105396, 0.52636920015543931, 0.52636919973606733, 0.52636919932308479, 0.52636919891663891, 0.52636919851684516, 0.52636919812382332, 0.52636919773767188, 0.52636919735847298, 0.52636919698629858, 0.52636919662120296, 0.5263691962632292, 0.52636919591239317, 0.52636919556871042, 0.52636919523217207, 0.52636919490275869, 0.52636919458043463, 0.5263691942651505, 0.52636919395683635, 0.52636919365542267, 0.52636919336080712, 0.52636919307289931, 0.5263691927915739, 0.52636919251670367, 0.5263691922481406, 0.5263691919857213, 0.52636919172927465, 0.52636919147859751, 0.5263691912335059, 0.52636919099381918, 0.52636919075934874, 0.52636919052989484, 0.52636919030525531, 0.52636919008522132, 0.52636918986957992, 0.52636918965816304, 0.52636918945071287, 0.52636918924702247, 0.52636918904688723, 0.52636918885012296, 0.52636918865661808, 0.52636918846612157, 0.52636918827846924, 0.52636918809348088, 0.52636918791098686, 0.52636918773082275, 0.5263691875528439, 0.52636918737690597, 0.52636918720287307, 0.52636918703062674, 0.5263691868600564, 0.52636918669106825, 0.52636918652357867, 0.52636918635750762, 0.52636918619278683, 0.52636918602936844, 0.52636918586721027, 0.52636918570627489, 0.52636918554656498, 0.52636918538805078, 0.52636918523071929, 0.52636918507457531, 0.52636918491965767, 0.52636918476595307, 0.52636918461347537, 0.52636918446224967, 0.52636918431229673, 0.52636918416362855, 0.52636918401627464, 0.52636918387026888, 0.52636918372564401, 0.52636918358242601, 0.52636918344064265, 0.5263691833003239, 0.52636918316149273, 0.52636918302417723, 0.52636918288840162, 0.5263691827541862, 0.52636918262154697, 0.52636918249049358, 0.52636918236103392, 0.52636918223316997, 0.52636918210688433, 0.526369181982135, 0.52636918185886516, 0.52636918173702019, 0.52636918161654866, 0.5263691814974234, 0.52636918137960398, 0.52636918126304555, 0.52636918114769993, 0.52636918103350983, 0.52636918092040896, 0.52636918080836104, 0.52636918069731775, 0.52636918058721271, 0.52636918047801851, 0.5263691803696614, 0.52636918026204804, 0.52636918015510326, 0.52636918004874156, 0.52636917994286914, 0.52636917983739029, 0.52636917973220854, 0.52636917962722107, 0.52636917952232154, 0.52636917941740358, 0.52636917931235028, 0.52636917920705362, 0.52636917910139969, 0.52636917899527835, 0.5263691788885696, 0.52636917878115641, 0.52636917867292099, 0.52636917856373988, 0.52636917845349174, 0.52636917834206032, 0.52636917822932505, 0.52636917811516082, 0.52636917799943828, 0.5263691778820363, 0.5263691777628311, 0.52636917764168745, 0.52636917751847323, 0.52636917739305999, 0.52636917726530463, 0.52636917713507481, 0.52636917700222963, 0.52636917686662665, 0.526369176728125, 0.52636917658658311, 0.52636917644183379, 0.52636917629370228, 0.52636917614199485, 0.52636917598649036, 0.52636917582697618, 0.5263691756632416, 0.5263691754950538, 0.5263691753221833, 0.52636917514440651, 0.52636917496150504, 0.5263691747732635, 0.52636917457947607, 0.52636917437993747, 0.52636917417440421, 0.52636917396267213, 0.5263691737445888, 0.52636917351998636, 0.52636917328870103, 0.5263691730505452, 0.5263691728054668, 0.52636917255335025, 0.52636917229412861, 0.52636917202775146, 0.52636917175419962, 0.52636917147349827, 0.52636917118566906, 0.52636917089077018, 0.52636917058887511, 0.52636917028007979, 0.52636916996451566, 0.5263691696423165, 0.52636916931364086, 0.52636916897866937, 0.52636916863758865, 0.52636916829061042, 0.52636916793798061, 0.52636916757991326, 0.526369167216718, 0.52636916684860979, 0.52636916647594867, 0.52636916609898032, 0.52636916571808257, 0.5263691653335798, 0.52636916494576114, 0.52636916455503946, 0.52636916416178858, 0.5263691637663479, 0.52636916336906447, 0.52636916297035496, 0.52636916257060806, 0.5263691621702089, 0.52636916176952431, 0.52636916136891609, 0.52636916096880448, 0.52636916056954675, 0.52636916017151614, 0.52636915977507359, 0.52636915938055595, 0.52636915898830572 0.52636915859863953, 0.52636915821188379, 0.52636915782833793, 0.52636915744827406, 0.52636915707199483, 0.52636915669975615, 0.52636915633191184, 0.52636915596863576, 0.52636915561015729, 0.52636915525664996, 0.52636915490834868, 0.52636915456541378, 0.52636915422802555, 0.52636915389583683, 0.52636915356899749, 0.52636915324788314, 0.52636915293240194, 0.52636915262266704, 0.52636915231872394, 0.52636915202059176, 0.5263691517282838, 0.52636915144179452, 0.52636915116110583, 0.52636915088615477, 0.52636915061687162, 0.52636915035317255, 0.52636915009494512, 0.52636914984206562, 0.52636914959439218, 0.5263691493517495, 0.52636914911398203, 0.52636914888089337, 0.52636914865224893, 0.52636914842785265, 0.52636914820748093, 0.52636914799084356, 0.52636914777770372, 0.52636914756781361, 0.52636914736086415, 0.52636914715656358, 0.52636914695466042, 0.52636914675486401, 0.52636914655683475, 0.52636914636030518, 0.52636914616501229, 0.526369145970632, 0.52636914577682381, 0.52636914558339976, 0.52636914539007307, 0.52636914519653655, 0.52636914500258136, 0.52636914480799946, 0.52636914461254258, 0.52636914441602856, 0.52636914421826309, 0.52636914401909096, 0.52636914381834543, 0.5263691436156841, 0.52636914341115637, 0.52636914320465533, 0.52636914299612969, 0.5263691427855447, 0.52636914257289757, 0.52636914235820864, 0.52636914214151864, 0.52636914192288353, 0.52636914170238347, 0.52636914148010838, 0.52636914125616951, 0.52636914103067534, 0.52636914080375241, 0.52636914057552175, 0.52636914034611559, 0.52636914011566294, 0.52636913988429801, 0.52636913965216758, 0.52636913941942132, 0.52636913918621875, 0.52636913895271631, 0.52636913871908242, 0.52636913848547284, 0.52636913825205722, 0.52636913801899732, 0.52636913778645333, 0.52636913755458448, 0.52636913732355006, 0.52636913709350097, 0.52636913686458464, 0.52636913663694462, 0.52636913641071681, 0.52636913618602865, 0.52636913596300328, 0.52636913574175292, 0.52636913552238129, 0.5263691353049833, 0.52636913508964167, 0.52636913487643022, 0.52636913466541058, 0.52636913445663236, 0.52636913425001564, 0.52636913404553809, 0.52636913384328854, 0.52636913364327054, 0.52636913344544978, 0.52636913324978518, 0.52636913305635258, 0.52636913286494513, 0.52636913267559016, 0.52636913248821127, 0.52636913230264459, 0.5263691321188797, 0.52636913193681645, 0.52636913175629518, 0.52636913157712384, 0.52636913139927277, 0.52636913122257312, 0.52636913104685823, 0.52636913087181891, 0.52636913069739277, 0.52636913052345002, 0.52636913034979649, 0.52636913017622433, 0.52636913000253771, 0.52636912982865558, 0.52636912965439997, 0.52636912947957504, 0.52636912930397539, 0.52636912912757949, 0.52636912895025745, 0.52636912877190467, 0.52636912859233231, 0.52636912841148631, 0.52636912822926263, 0.52636912804547931, 0.52636912786014933, 0.52636912767318778, 0.52636912748440068, 0.52636912729390251, 0.5263691271016111, 0.52636912690739557, 0.52636912671139957, 0.52636912651351353, 0.52636912631377231, 0.52636912611222131, 0.52636912590887242, 0.52636912570376826, 0.52636912549695736, 0.52636912528840563, 0.52636912507827383, 0.52636912486674692, 0.52636912465395358, 0.52636912444007811, 0.5263691242253119, 0.52636912400986202, 0.5263691237939454, 0.52636912357779153, 0.52636912336163511, 0.52636912314572404, 0.52636912293030935, 0.52636912271565051, 0.52636912250200962, 0.52636912228965371, 0.52636912207885267, 0.52636912186987161, 0.52636912166297656, 0.52636912145842885, 0.52636912125647439, 0.52636912105735834, 0.52636912086132148, 0.52636912066857877, 0.52636912047936635, 0.52636912029378902, 0.52636912011149595, 0.52636911993275393, 0.52636911975754197, 0.5263691195859046, 0.5263691194179122, 0.5263691192537, 0.52636911909317186, 0.52636911893644933, 0.52636911878342463, 0.52636911863413971, 0.5263691184885041, 0.52636911834650724, 0.52636911820809285, 0.52636911807318787, 0.5263691179416945, 0.52636911781345808, 0.52636911768846573, 0.52636911756652094, 0.52636911744749471, 0.52636911733126057, 0.52636911721762669, 0.52636911710644885, 0.52636911699749112, 0.52636911689055887, 0.52636911678542686, 0.52636911668186437, 0.52636911657965813, 0.52636911647852547, 0.52636911637825501, 0.5263691162785934, 0.5263691161792533, 0.5263691160800934, 0.52636911598077685, 0.52636911588121771, 0.52636911578117729, 0.52636911568054578, 0.52636911557917976, 0.52636911547689147, 0.52636911537363407, 0.52636911526920604, 0.52636911516359142, 0.52636911505661366, 0.52636911494826022, 0.52636911483838289, 0.5263691147269457, 0.52636911461407054, 0.52636911449965751, 0.52636911438381906, 0.52636911426649935, 0.52636911414779197, 0.52636911402777653, 0.52636911390651664, 0.52636911378403517, 0.52636911366045214, 0.52636911353582627, 0.52636911341029036, 0.52636911328400204, 0.52636911315703405, 0.52636911302956024, 0.52636911290188582, 0.52636911277408305, 0.52636911264632624, 0.52636911251886187, 0.52636911239184614, 0.52636911226547611, 0.52636911213991522, 0.52636911201535375, 0.52636911189198321]
+# [redacted]
 # 
 # The energy is conserved to 6dp throughout the run 
 # ### 3. Conservation of potential vorticity in parcels
 # 
 # From either the dimensionless or dimensional model equations, derive with pencil and paper:
 # $$
-# \frac{d}{dt}\frac{\zeta+f}{h} = 0
+# \frac{d}{dt}\frac{\xi+f}{h} = 0
 # $$
 # where
 # $$
-# \zeta \equiv \frac{\partial v}{\partial x} - \frac{\partial u}{\partial y}
+# \vort \equiv \frac{\partial v}{\partial x} - \frac{\partial u}{\partial y}
 # $$
-# So the potential vorticity $$\frac{\zeta+f}{h}$$ does not change within a parcel of fluid.
+# So the potential vorticity $$\frac{\vort+f}{h}$$ does not change within a parcel of fluid.
 # 
 # In our initialization with the height initially stacked up at the center, there is no advection at the center,
 # so the potential vorticity should be invariant at the center point.
 # 
-# Finish the `vorticity` function and then monitor   $\frac{\zeta+f}{h}$ at the central grid point, to investigte if the model keeps it invariant with time.
+# Finish the `vorticity` function and then monitor   $\frac{\vort+f}{h}$ at the central grid point, to investigte if the model keeps it invariant with time.
 # 
-# <img src="zetacenterstudy.png">
+# <img src="vortcenterstudy.png">
 # <img src="vertvortfix.png">
 # 
 # ### 4.  Instability with high f
@@ -716,6 +1037,292 @@ simple.axis('off')
 # | 300 | 0.2 | 0.002 | 0.6 | Kaboom! |
 # 
 # Blowing up is much more dependent on dtlim than it is on f. A change of just 0.2 in how far a parcel can move across a grid cell causes the simulation to blow up while it took increasing f to 3 times its original size to cause the same effect
+
+# In[421]:
+
+HR = np.load('HR_vortstore.npy')
+HRt = np.load('HR_tstore.npy')
+op14 = np.load('FB_Var4_CFL0p1_vortstore.npy')
+op14t = np.load('FB_Var4_CFL0p1_tstore.npy')
+op13 = np.load('FB_Var3_CFL0p1_vortstore.npy')
+op13t = np.load('FB_Var3_CFL0p1_tstore.npy')
+op12 = np.load('FB_Var2_CFL0p1_vortstore.npy')
+op12t = np.load('FB_Var2_CFL0p1_tstore.npy')
+op24 = np.load('FB_Var4_CFL0p2_vortstore.npy')
+op24t = np.load('FB_Var4_CFL0p2_tstore.npy')
+op23 = np.load('FB_Var3_CFL0p2_vortstore.npy')
+op23t = np.load('FB_Var3_CFL0p2_tstore.npy')
+op22 = np.load('FB_Var2_CFL0p2_vortstore.npy')
+op22t = np.load('FB_Var2_CFL0p2_tstore.npy')
+op34 = np.load('FB_Var4_CFL0p3_vortstore.npy')
+op34t = np.load('FB_Var4_CFL0p3_tstore.npy')
+op33 = np.load('FB_Var3_CFL0p3_vortstore.npy')
+op33t = np.load('FB_Var3_CFL0p3_tstore.npy')
+op32 = np.load('FB_Var2_CFL0p3_vortstore.npy')
+op32t = np.load('FB_Var2_CFL0p3_tstore.npy')
+op3 = np.load('FB_Cons_CFL0p3_vortstore.npy')
+op3t = np.load('FB_Cons_CFL0p3_tstore.npy')
+op2 = np.load('FB_Cons_CFL0p2_vortstore.npy')
+op2t = np.load('FB_Cons_CFL0p2_tstore.npy')
+op1 = np.load('FB_Cons_CFL0p1_vortstore.npy')
+op1t = np.load('FB_Cons_CFL0p1_tstore.npy')
+
+HR = (HR*(c_scale/(L_scale*H_scale))-(HR[0]*(c_scale/(L_scale*H_scale))))/HR[0]*(c_scale/(L_scale*H_scale))
+op14 = (op14*(c_scale/(L_scale*H_scale))-(op14[0]*(c_scale/(L_scale*H_scale))))/op14[0]*(c_scale/(L_scale*H_scale))
+op13 = (op13*(c_scale/(L_scale*H_scale))-(op13[0]*(c_scale/(L_scale*H_scale))))/op13[0]*(c_scale/(L_scale*H_scale))
+op12 = (op12*(c_scale/(L_scale*H_scale))-(op12[0]*(c_scale/(L_scale*H_scale))))/op12[0]*(c_scale/(L_scale*H_scale))
+op24 = (op24*(c_scale/(L_scale*H_scale))-(op24[0]*(c_scale/(L_scale*H_scale))))/op24[0]*(c_scale/(L_scale*H_scale))
+op23 = (op23*(c_scale/(L_scale*H_scale))-(op23[0]*(c_scale/(L_scale*H_scale))))/op23[0]*(c_scale/(L_scale*H_scale))
+op22 = (op22*(c_scale/(L_scale*H_scale))-(op22[0]*(c_scale/(L_scale*H_scale))))/op22[0]*(c_scale/(L_scale*H_scale))
+op34 = (op34*(c_scale/(L_scale*H_scale))-(op34[0]*(c_scale/(L_scale*H_scale))))/op34[0]*(c_scale/(L_scale*H_scale))
+op33 = (op33*(c_scale/(L_scale*H_scale))-(op33[0]*(c_scale/(L_scale*H_scale))))/op33[0]*(c_scale/(L_scale*H_scale))
+op32 = (op32*(c_scale/(L_scale*H_scale))-(op32[0]*(c_scale/(L_scale*H_scale))))/op32[0]*(c_scale/(L_scale*H_scale))
+op3 = (op3*(c_scale/(L_scale*H_scale))-(op3[0]*(c_scale/(L_scale*H_scale))))/op3[0]*(c_scale/(L_scale*H_scale))
+op2 = (op2*(c_scale/(L_scale*H_scale))-(op2[0]*(c_scale/(L_scale*H_scale))))/op2[0]*(c_scale/(L_scale*H_scale))
+op1 = (op1*(c_scale/(L_scale*H_scale))-(op1[0]*(c_scale/(L_scale*H_scale))))/op1[0]*(c_scale/(L_scale*H_scale))
+
+q3,vortplot = plt.subplots(figsize=(12,6))
+vortplot.plot(op14t*t_scale,op14,'r',label='$\lambda^N=4$, CFL=0.1')
+vortplot.plot(op13t*t_scale,op13,'m',label='$\lambda^N=3$, CFL=0.1')
+vortplot.plot(op12t*t_scale,op12,'b',label='$\lambda^N=2$, CFL=0.1')
+vortplot.plot(op1t*t_scale,op1,'c',label='Const, CFL=0.1')
+vortplot.plot(op24t*t_scale,op24,'r--',label='$\lambda^N=4$, CFL=0.2')
+vortplot.plot(op23t*t_scale,op23,'m--',label='$\lambda^N=3$, CFL=0.2')
+vortplot.plot(op22t*t_scale,op22,'b--',label='$\lambda^N=2$, CFL=0.2')
+vortplot.plot(op2t*t_scale,op2,'c--',label='Const, CFL=0.2')
+#vortplot.plot(op34t*t_scale,op34,'r-.',label='$\lambda^N=4$, CFL=0.3')
+vortplot.plot(op33t*t_scale,op33,'m-.',label='$\lambda^N=3$, CFL=0.3')
+vortplot.plot(op32t*t_scale,op32,'b-.',label='$\lambda^N=2$, CFL=0.3')
+vortplot.plot(op3t*t_scale,op3,'c-.',label='Const, CFL=0.3')
+vortplot.plot(HRt*t_scale,HR,'k',label='HR')
+vortplot.set_title('Normalised Relative Vorticity Change')
+vortplot.set_xlim((19,tstop*t_scale))
+vortplot.set_ylim(-0.001,-0.0002)
+vortplot.set_xlabel('Time / Days')
+vortplot.set_ylabel('Relative Vorticity Conservation')
+vortplot.grid()
+lgd = vortplot.legend(loc='center right', bbox_to_anchor=(1.5, 0.5))
+q3.savefig('ZoomedRelVortComp.png',bbox_extra_artists=(lgd,),bbox_inches='tight')
+
+
+# In[423]:
+
+HR = np.load('HR_potvortstore.npy')
+HRt = np.load('HR_tstore.npy')
+op14 = np.load('FB_Var4_CFL0p1_potvortstore.npy')
+op14t = np.load('FB_Var4_CFL0p1_tstore.npy')
+op13 = np.load('FB_Var3_CFL0p1_potvortstore.npy')
+op13t = np.load('FB_Var3_CFL0p1_tstore.npy')
+op12 = np.load('FB_Var2_CFL0p1_potvortstore.npy')
+op12t = np.load('FB_Var2_CFL0p1_tstore.npy')
+op24 = np.load('FB_Var4_CFL0p2_potvortstore.npy')
+op24t = np.load('FB_Var4_CFL0p2_tstore.npy')
+op23 = np.load('FB_Var3_CFL0p2_potvortstore.npy')
+op23t = np.load('FB_Var3_CFL0p2_tstore.npy')
+op22 = np.load('FB_Var2_CFL0p2_potvortstore.npy')
+op22t = np.load('FB_Var2_CFL0p2_tstore.npy')
+op34 = np.load('FB_Var4_CFL0p3_potvortstore.npy')
+op34t = np.load('FB_Var4_CFL0p3_tstore.npy')
+op33 = np.load('FB_Var3_CFL0p3_potvortstore.npy')
+op33t = np.load('FB_Var3_CFL0p3_tstore.npy')
+op32 = np.load('FB_Var2_CFL0p3_potvortstore.npy')
+op32t = np.load('FB_Var2_CFL0p3_tstore.npy')
+op3 = np.load('FB_Cons_CFL0p3_potvortstore.npy')
+op3t = np.load('FB_Cons_CFL0p3_tstore.npy')
+op2 = np.load('FB_Cons_CFL0p2_potvortstore.npy')
+op2t = np.load('FB_Cons_CFL0p2_tstore.npy')
+op1 = np.load('FB_Cons_CFL0p1_potvortstore.npy')
+op1t = np.load('FB_Cons_CFL0p1_tstore.npy')
+
+HR = ((HR/(L_scale*c_scale))-(HR[0]/(L_scale*c_scale)))/(HR[0]/(L_scale*c_scale))
+op14 = ((op14/(L_scale*c_scale))-(op14[0]/(L_scale*c_scale)))/(op14[0]/(L_scale*c_scale))
+op13 = ((op13/(L_scale*c_scale))-(op13[0]/(L_scale*c_scale)))/(op13[0]/(L_scale*c_scale))
+op12 = ((op12/(L_scale*c_scale))-(op12[0]/(L_scale*c_scale)))/(op12[0]/(L_scale*c_scale))
+op24 = ((op24/(L_scale*c_scale))-(op24[0]/(L_scale*c_scale)))/(op24[0]/(L_scale*c_scale))
+op23 = ((op23/(L_scale*c_scale))-(op23[0]/(L_scale*c_scale)))/(op23[0]/(L_scale*c_scale))
+op22 = ((op22/(L_scale*c_scale))-(op22[0]/(L_scale*c_scale)))/(op22[0]/(L_scale*c_scale))
+op34 = ((op34/(L_scale*c_scale))-(op34[0]/(L_scale*c_scale)))/(op34[0]/(L_scale*c_scale))
+op33 = ((op33/(L_scale*c_scale))-(op33[0]/(L_scale*c_scale)))/(op33[0]/(L_scale*c_scale))
+op32 = ((op32/(L_scale*c_scale))-(op32[0]/(L_scale*c_scale)))/(op32[0]/(L_scale*c_scale))
+op3 = ((op3/(L_scale*c_scale))-(op3[0]/(L_scale*c_scale)))/(op3[0]/(L_scale*c_scale))
+op2 = ((op2/(L_scale*c_scale))-(op2[0]/(L_scale*c_scale)))/(op2[0]/(L_scale*c_scale))
+op1 = ((op1/(L_scale*c_scale))-(op1[0]/(L_scale*c_scale)))/(op1[0]/(L_scale*c_scale))
+
+q4,potvortplot = plt.subplots(figsize=(12,6))
+potvortplot.plot(op14t*t_scale,op14,'r',label='$\lambda^N=4$, CFL=0.1')
+potvortplot.plot(op13t*t_scale,op13,'m',label='$\lambda^N=3$, CFL=0.1')
+potvortplot.plot(op12t*t_scale,op12,'b',label='$\lambda^N=2$, CFL=0.1')
+potvortplot.plot(op1t*t_scale,op1,'c',label='Const, CFL=0.1')
+potvortplot.plot(op24t*t_scale,op24,'r--',label='$\lambda^N=4$, CFL=0.2')
+potvortplot.plot(op23t*t_scale,op23,'m--',label='$\lambda^N=3$, CFL=0.2')
+potvortplot.plot(op22t*t_scale,op22,'b--',label='$\lambda^N=2$, CFL=0.2')
+potvortplot.plot(op2t*t_scale,op2,'c--',label='Const, CFL=0.2')
+#potvortplot.plot(op34t*t_scale,op34,'r-.',label='$\lambda^N=4$, CFL=0.3')
+potvortplot.plot(op33t*t_scale,op33,'m-.',label='$\lambda^N=3$, CFL=0.3')
+potvortplot.plot(op32t*t_scale,op32,'b-.',label='$\lambda^N=2$, CFL=0.3')
+potvortplot.plot(op3t*t_scale,op3,'c-.',label='Const, CFL=0.3')
+potvortplot.plot(HRt*t_scale,HR,'k',label='HR')
+potvortplot.set_title('Normalised Potential Vorticity Change')
+potvortplot.set_xlim((19,tstop*t_scale))
+potvortplot.set_xlabel('Time / Days')
+potvortplot.set_ylabel('Potential Vorticity Conservation')
+potvortplot.grid()
+lgd = potvortplot.legend(loc='center right', bbox_to_anchor=(1.5, 0.5))
+potvortplot.set_ylim(-0.008,-0.01)
+q4.savefig('ZoomedPotVortComp.png',bbox_extra_artists=(lgd,),bbox_inches='tight')
+
+
+# In[425]:
+
+HR = np.load('HR_nrgstore.npy')
+HRt = np.load('HR_tstore.npy')
+op14 = np.load('FB_Var4_CFL0p1_nrgstore.npy')
+op14t = np.load('FB_Var4_CFL0p1_tstore.npy')
+op13 = np.load('FB_Var3_CFL0p1_nrgstore.npy')
+op13t = np.load('FB_Var3_CFL0p1_tstore.npy')
+op12 = np.load('FB_Var2_CFL0p1_nrgstore.npy')
+op12t = np.load('FB_Var2_CFL0p1_tstore.npy')
+op24 = np.load('FB_Var4_CFL0p2_nrgstore.npy')
+op24t = np.load('FB_Var4_CFL0p2_tstore.npy')
+op23 = np.load('FB_Var3_CFL0p2_nrgstore.npy')
+op23t = np.load('FB_Var3_CFL0p2_tstore.npy')
+op22 = np.load('FB_Var2_CFL0p2_nrgstore.npy')
+op22t = np.load('FB_Var2_CFL0p2_tstore.npy')
+op34 = np.load('FB_Var4_CFL0p3_nrgstore.npy')
+op34t = np.load('FB_Var4_CFL0p3_tstore.npy')
+op33 = np.load('FB_Var3_CFL0p3_nrgstore.npy')
+op33t = np.load('FB_Var3_CFL0p3_tstore.npy')
+op32 = np.load('FB_Var2_CFL0p3_nrgstore.npy')
+op32t = np.load('FB_Var2_CFL0p3_tstore.npy')
+op3 = np.load('FB_Cons_CFL0p3_nrgstore.npy')
+op3t = np.load('FB_Cons_CFL0p3_tstore.npy')
+op2 = np.load('FB_Cons_CFL0p2_nrgstore.npy')
+op2t = np.load('FB_Cons_CFL0p2_tstore.npy')
+op1 = np.load('FB_Cons_CFL0p1_nrgstore.npy')
+op1t = np.load('FB_Cons_CFL0p1_tstore.npy')
+
+HR = (HR[1:]-HR[1])/HR[1]
+op14 = (op14[1:]-op14[1])/op14[1]
+op13 = (op13[1:]-op13[1])/op13[1]
+op12 = (op12[1:]-op12[1])/op12[1]
+op24 = (op24[1:]-op24[1])/op24[1]
+op23 = (op23[1:]-op23[1])/op23[1]
+op22 = (op22[1:]-op22[1])/op22[1]
+op34 = (op34[1:]-op34[1])/op34[1]
+op33 = (op33[1:]-op33[1])/op33[1]
+op32 = (op32[1:]-op32[1])/op32[1]
+op3 = (op3[1:]-op3[1])/op3[1]
+op2 = (op2[1:]-op2[1])/op2[1]
+op1 = (op1[1:]-op1[1])/op1[1]
+
+myfig, trace = plt.subplots(figsize=(12,6))
+trace.plot(op14t[1:]*t_scale,op14,'r',label='$\lambda^N=4$, CFL=0.1')
+trace.plot(op13t[1:]*t_scale,op13,'m',label='$\lambda^N=3$, CFL=0.1')
+trace.plot(op12t[1:]*t_scale,op12,'b',label='$\lambda^N=2$, CFL=0.1')
+trace.plot(op1t[1:]*t_scale,op1,'c',label='Const, CFL=0.1')
+trace.plot(op24t[1:]*t_scale,op24,'r--',label='$\lambda^N=4$, CFL=0.2')
+trace.plot(op23t[1:]*t_scale,op23,'m--',label='$\lambda^N=3$, CFL=0.2')
+trace.plot(op22t[1:]*t_scale,op22,'b--',label='$\lambda^N=2$, CFL=0.2')
+trace.plot(op2t[1:]*t_scale,op2,'c--',label='Const, CFL=0.2')
+#trace.plot(op34t[1:]*t_scale,op34,'r-.',label='$\lambda^N=4$, CFL=0.3')
+trace.plot(op33t[1:]*t_scale,op33,'m-.',label='$\lambda^N=3$, CFL=0.3')
+trace.plot(op32t[1:]*t_scale,op32,'b-.',label='$\lambda^N=2$, CFL=0.3')
+trace.plot(op3t[1:]*t_scale,op3,'c-.',label='Const, CFL=0.3')
+trace.plot(HRt[1:]*t_scale,HR,'k',label='HR')
+trace.set_title('Normalised Energy Change')
+trace.set_xlabel('t / Days')
+trace.set_ylabel('Energy Conservation')
+trace.set_xlim(19,tstop*t_scale)
+trace.grid()
+lgd = trace.legend(loc='center right', bbox_to_anchor=(1.5, 0.5))
+trace.set_ylim(-0.001,0.004)
+myfig.savefig('ZoomedNRGComp.png',bbox_extra_artists=(lgd,),bbox_inches='tight')
+
+
+# In[434]:
+
+HR = np.load('HR_ensstore.npy')
+HRt = np.load('HR_tstore.npy')
+op14 = np.load('FB_Var4_CFL0p1_ensstore.npy')
+op14t = np.load('FB_Var4_CFL0p1_tstore.npy')
+op13 = np.load('FB_Var3_CFL0p1_ensstore.npy')
+op13t = np.load('FB_Var3_CFL0p1_tstore.npy')
+op12 = np.load('FB_Var2_CFL0p1_ensstore.npy')
+op12t = np.load('FB_Var2_CFL0p1_tstore.npy')
+op24 = np.load('FB_Var4_CFL0p2_ensstore.npy')
+op24t = np.load('FB_Var4_CFL0p2_tstore.npy')
+op23 = np.load('FB_Var3_CFL0p2_ensstore.npy')
+op23t = np.load('FB_Var3_CFL0p2_tstore.npy')
+op22 = np.load('FB_Var2_CFL0p2_ensstore.npy')
+op22t = np.load('FB_Var2_CFL0p2_tstore.npy')
+op34 = np.load('FB_Var4_CFL0p3_ensstore.npy')
+op34t = np.load('FB_Var4_CFL0p3_tstore.npy')
+op33 = np.load('FB_Var3_CFL0p3_ensstore.npy')
+op33t = np.load('FB_Var3_CFL0p3_tstore.npy')
+op32 = np.load('FB_Var2_CFL0p3_ensstore.npy')
+op32t = np.load('FB_Var2_CFL0p3_tstore.npy')
+op3 = np.load('FB_Cons_CFL0p3_ensstore.npy')
+op3t = np.load('FB_Cons_CFL0p3_tstore.npy')
+op2 = np.load('FB_Cons_CFL0p2_ensstore.npy')
+op2t = np.load('FB_Cons_CFL0p2_tstore.npy')
+op1 = np.load('FB_Cons_CFL0p1_ensstore.npy')
+op1t = np.load('FB_Cons_CFL0p1_tstore.npy')
+
+HR = ((HR/(c_scale**2))-(HR[0]/(c_scale**2)))/(HR[0]/(c_scale**2))
+op14 = ((op14/(c_scale**2))-(op14[0]/(c_scale**2)))/(op14[0]/(c_scale**2))
+op13 = ((op13/(c_scale**2))-(op13[0]/(c_scale**2)))/(op13[0]/(c_scale**2))
+op12 = ((op12/(c_scale**2))-(op12[0]/(c_scale**2)))/(op12[0]/(c_scale**2))
+op24 = ((op24/(c_scale**2))-(op24[0]/(c_scale**2)))/(op24[0]/(c_scale**2))
+op23 = ((op23/(c_scale**2))-(op23[0]/(c_scale**2)))/(op23[0]/(c_scale**2))
+op22 = ((op22/(c_scale**2))-(op22[0]/(c_scale**2)))/(op22[0]/(c_scale**2))
+op34 = ((op34/(c_scale**2))-(op34[0]/(c_scale**2)))/(op34[0]/(c_scale**2))
+op33 = ((op33/(c_scale**2))-(op33[0]/(c_scale**2)))/(op33[0]/(c_scale**2))
+op32 = ((op32/(c_scale**2))-(op32[0]/(c_scale**2)))/(op32[0]/(c_scale**2))
+op3 = ((op3/(c_scale**2))-(op3[0]/(c_scale**2)))/(op3[0]/(c_scale**2))
+op2 = ((op2/(c_scale**2))-(op2[0]/(c_scale**2)))/(op2[0]/(c_scale**2))
+op1 = ((op1/(c_scale**2))-(op1[0]/(c_scale**2)))/(op1[0]/(c_scale**2))
+
+q5, ensplot = plt.subplots(figsize=(12,6))
+ensplot.plot(op14t*t_scale,op14,'r',label='$\lambda^N=4$, CFL=0.1')
+ensplot.plot(op13t*t_scale,op13,'m',label='$\lambda^N=3$, CFL=0.1')
+ensplot.plot(op12t*t_scale,op12,'b',label='$\lambda^N=2$, CFL=0.1')
+ensplot.plot(op1t*t_scale,op1,'c',label='Const, CFL=0.1')
+ensplot.plot(op24t*t_scale,op24,'r--',label='$\lambda^N=4$, CFL=0.2')
+ensplot.plot(op23t*t_scale,op23,'m--',label='$\lambda^N=3$, CFL=0.2')
+ensplot.plot(op22t*t_scale,op22,'b--',label='$\lambda^N=2$, CFL=0.2')
+ensplot.plot(op2t*t_scale,op2,'c--',label='Const, CFL=0.2')
+#ensplot.plot(op34t*t_scale,op34,'r-.',label='$\lambda^N=4$, CFL=0.3')
+ensplot.plot(op33t*t_scale,op33,'m-.',label='$\lambda^N=3$, CFL=0.3')
+ensplot.plot(op32t*t_scale,op32,'b-.',label='$\lambda^N=2$, CFL=0.3')
+ensplot.plot(op3t*t_scale,op3,'c-.',label='Const, CFL=0.3')
+ensplot.plot(HRt*t_scale,HR,'k',label='HR')
+ensplot.set_title('Normalised Potential Enstrophy Change')
+ensplot.set_xlabel('t / Days')
+ensplot.set_ylabel('Potential Enstrophy Conservation')
+ensplot.set_xlim(19,tstop*t_scale)
+ensplot.grid()
+lgd = ensplot.legend(loc='center right', bbox_to_anchor=(1.5, 0.5))
+ensplot.set_ylim(-0.0375,-0.0345)
+q5.savefig('ZoomedEnsComp.png',bbox_extra_artists=(lgd,),bbox_inches='tight')
+
+
+# In[411]:
+
+#filenames = ['HR','FB_Cons_CFL0p1','FB_Cons_CFL0p2','FB_Cons_CFL0p3','FB_Var2_CFL0p3','FB_Var3_CFL0p3','FB_Var4_CFL0p3','FB_Var2_CFL0p2','FB_Var3_CFL0p2','FB_Var4_CFL0p2','FB_Var2_CFL0p1','FB_Var3_CFL0p1','FB_Var4_CFL0p1']
+#
+#for filename in filenames:
+#    Loadhu = np.load(filename+'_hu.npy')
+#    Loadvort = np.load(filename+'_vort.npy')
+#    vortu = p2u(Loadvort)
+#    potvort = (fcoriolis+vortu)/Loadhu
+#    np.save(filename+'_potvort',potvort)
+#
+#for filename in filenames[1:]:
+#    rmse_potvort = rmse(np.load('HR_potvort.npy'),np.load(filename+'_potvort.npy'))
+#    with open('potvortRMSE.csv','a') as file:
+#        o = csv.writer(file,lineterminator='\n')
+#        o.writerow([filename,rmse_potvort])
+
 
 # In[ ]:
 
